@@ -1,0 +1,99 @@
+# ── AI early-signal scraper config ───────────────────────────────────────────
+# Edit freely. Everything here is read at runtime; no code changes needed.
+
+[general]
+# Max publish-age to KEEP an item (hours). Generous, because arXiv papers / GitHub
+# repos / HF models have older publish dates than HN/Reddit posts — recency for
+# ranking is judged by when WE first saw it, not the publish date. 336h = 14 days.
+max_age_hours = 336
+# Max items to keep in the final digest.
+digest_size = 25
+# Where the markdown digest is written (relative to project root).
+digest_path = "digests"
+
+[ollama]
+host = "http://localhost:11434"
+chat_model = "llama3.1:8b"        # relevance + earliness judging
+embed_model = "nomic-embed-text"  # novelty / dedup
+# Skip the LLM scoring step (faster, less precise) by setting to false.
+use_llm_scoring = true
+
+[relevance]
+# The LLM scores each item against this description of what you care about.
+focus = """
+Frontier / emerging AI technology: new model architectures, open-weight model
+releases, agent frameworks, inference + training techniques, novel research,
+tooling and infrastructure. Prefer technical, builder-relevant signal.
+"""
+# Hard keyword prefilter (case-insensitive). An item must match >=1 to survive
+# the cheap prefilter before it ever reaches the LLM. Keep broad.
+keywords = [
+  "ai", "llm", "agent", "model", "transformer", "diffusion", "rag",
+  "fine-tun", "inference", "quantiz", "embedding", "neural", "gpt",
+  "open-weight", "open weight", "multimodal", "reasoning", "benchmark",
+]
+
+[novelty]
+# Cosine-similarity threshold against previously surfaced items.
+# Items more similar than this to something already shown are treated as stale.
+similarity_threshold = 0.86
+
+[collector]
+# The collector runs constantly (systemd timer on the Jetson), accumulating items.
+# Drop items not seen for this many days to bound the corpus + novelty comparisons.
+retention_days = 14
+
+[ranking]
+# Ranking happens on demand (`top`). Score = weighted components × freshness decay.
+halflife_hours = 18        # freshness: score halves every N hours of age (lower = fresher bias)
+weight_velocity = 0.30     # engagement gained per hour (real slope across snapshots)
+weight_novelty = 0.20      # 1 - similarity to the rest of the corpus
+weight_relevance = 0.25    # LLM fit to [relevance].focus
+weight_earliness = 0.15    # LLM "how pre-mainstream"
+weight_query = 0.30        # topic similarity, only when `top --query` is used
+default_top_n = 20
+default_since_hours = 72    # only rank items first published within this window
+
+[suppression]
+# Topics already covered by these domains are downranked as "already broke".
+mainstream_domains = [
+  "techcrunch.com", "theverge.com", "wired.com", "nytimes.com",
+  "wsj.com", "bloomberg.com", "cnbc.com", "forbes.com", "reuters.com",
+  "venturebeat.com", "businessinsider.com", "arstechnica.com",
+]
+# Score multiplier applied to items pointing at a mainstream domain.
+penalty = 0.5
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+
+[sources.arxiv]
+enabled = true
+categories = ["cs.LG", "cs.AI", "cs.CL", "cs.MA"]
+max_results = 60
+
+[sources.hackernews]
+enabled = true
+# One full-text query per term (Algolia isn't boolean); results are merged.
+queries = ["AI", "LLM", "language model", "AI agent", "open weights", "fine-tuning"]
+max_results = 40        # per query
+min_points = 2
+
+[sources.reddit]
+enabled = true
+subreddits = ["LocalLLaMA", "MachineLearning", "singularity", "LLMDevs"]
+listing = "new"          # new | hot | rising
+limit_per_sub = 40
+
+[sources.github]
+enabled = true
+# Searched as: created:>{recent} stars:>=min_stars (topic OR topic ...)
+topics = ["llm", "ai-agents", "machine-learning", "generative-ai", "rag"]
+min_stars = 8
+max_results = 50
+# Optional: set the GITHUB_TOKEN env var to raise the rate limit (10/hr -> 30/min).
+
+[sources.huggingface]
+enabled = true
+# Pulls trending models and the daily papers feed.
+models_limit = 40
+include_daily_papers = true

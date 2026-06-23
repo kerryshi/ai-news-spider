@@ -1,0 +1,108 @@
+{
+  "name": "ai-signal-scraper",
+  "displayName": "AI Signal Scraper",
+  "description": "Surface emerging, not-yet-mainstream AI tech news from arXiv, HN, Reddit, GitHub & Hugging Face — ranked locally with Ollama.",
+  "version": "0.1.1",
+  "publisher": "kerryshi",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiSignal.top",
+        "title": "AI Signal: Top now",
+        "icon": "$(radar)"
+      },
+      {
+        "command": "aiSignal.topByTopic",
+        "title": "AI Signal: Top on topic…"
+      },
+      {
+        "command": "aiSignal.collectNow",
+        "title": "AI Signal: Collect now (force refresh)"
+      },
+      {
+        "command": "aiSignal.openLatest",
+        "title": "AI Signal: Open last digest"
+      }
+    ],
+    "configuration": {
+      "title": "AI Signal Scraper",
+      "properties": {
+        "aiSignal.sshHost": {
+          "type": "string",
+          "default": "192.168.55.1",
+          "description": "Host/IP of the Jetson running the collector (default = USB-network address)."
+        },
+        "aiSignal.sshUser": {
+          "type": "string",
+          "default": "",
+          "description": "Linux username on the Jetson (required). Key-based SSH must be set up."
+        },
+        "aiSignal.remoteDir": {
+          "type": "string",
+          "default": "~/ai-signal",
+          "description": "Path to the engine project on the Jetson."
+        },
+        "aiSignal.remotePython": {
+          "type": "string",
+          "default": "venv/bin/python",
+          "description": "Python interpreter on the Jetson, relative to remoteDir (or absolute)."
+        },
+        "aiSignal.defaultTopN": {
+          "type": "number",
+          "default": 20,
+          "description": "How many items 'Top now' returns."
+        },
+        "aiSignal.sinceHours": {
+          "type": "number",
+          "default": 72,
+          "description": "Only rank items first seen within this many hours."
+        },
+        "aiSignal.topOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically fetch the latest ranking when VS Code starts (zero-click signal)."
+        },
+        "aiSignal.openOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "On startup, also open the digest preview (off = just update the status bar)."
+        },
+        "aiSignal.refreshMinutes": {
+          "type": "number",
+          "default": 0,
+          "description": "Silently refresh the status-bar signal every N minutes (0 = off)."
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        { "command": "aiSignal.top" },
+        { "command": "aiSignal.topByTopic" },
+        { "command": "aiSignal.collectNow" },
+        { "command": "aiSignal.openLatest" }
+      ]
+    },
+    "keybindings": [
+      { "command": "aiSignal.top", "key": "ctrl+alt+a" },
+      { "command": "aiSignal.topByTopic", "key": "ctrl+alt+t" }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --allow-missing-repository -o ai-signal-scraper.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.24.0",
+    "typescript": "^5.4.0"
+  }
+}

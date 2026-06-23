@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Runtime state & output
+state.db
+digests/
+*.log
+
+# Extension build artifacts
+extension/node_modules/
+extension/out/
+extension/*.vsix
