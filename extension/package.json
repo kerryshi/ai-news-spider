@@ -2,13 +2,17 @@
   "name": "ai-signal-scraper",
   "displayName": "AI Signal Scraper",
   "description": "Surface emerging, not-yet-mainstream AI tech news from arXiv, HN, Reddit, GitHub & Hugging Face — ranked locally with Ollama.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "kerryshi",
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -82,15 +86,29 @@
     },
     "menus": {
       "commandPalette": [
-        { "command": "aiSignal.top" },
-        { "command": "aiSignal.topByTopic" },
-        { "command": "aiSignal.collectNow" },
-        { "command": "aiSignal.openLatest" }
+        {
+          "command": "aiSignal.top"
+        },
+        {
+          "command": "aiSignal.topByTopic"
+        },
+        {
+          "command": "aiSignal.collectNow"
+        },
+        {
+          "command": "aiSignal.openLatest"
+        }
       ]
     },
     "keybindings": [
-      { "command": "aiSignal.top", "key": "ctrl+alt+a" },
-      { "command": "aiSignal.topByTopic", "key": "ctrl+alt+t" }
+      {
+        "command": "aiSignal.top",
+        "key": "ctrl+alt+a"
+      },
+      {
+        "command": "aiSignal.topByTopic",
+        "key": "ctrl+alt+t"
+      }
     ]
   },
   "scripts": {

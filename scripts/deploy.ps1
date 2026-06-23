@@ -31,7 +31,7 @@ Set-Location $root
 if (-not $SkipTests) {
   Step "Running tests"
   & $py -m pytest
-  if ($LASTEXITCODE -ne 0) { Die "tests failed — not deploying" }
+  if ($LASTEXITCODE -ne 0) { Die "tests failed - not deploying" }
 } else { Write-Host "(skipping tests)" -ForegroundColor DarkGray }
 
 # 2. SHIP ENGINE to the Jetson ---------------------------------------------
@@ -47,8 +47,12 @@ Write-Host "    engine synced (cron picks it up next cycle)" -ForegroundColor Da
 
 # 3. REMOTE SMOKE TEST ------------------------------------------------------
 Step "Remote smoke test (top --json on the Jetson)"
-$out = ssh -o BatchMode=yes $jet "cd $remoteDir && $remotePy -m engine.cli top --json --n 3" 2>$null
-try { $j = ($out | Out-String | ConvertFrom-Json); Write-Host "    ok: $($j.items.Count) items ranked" -ForegroundColor Green }
+# PS 5.1 turns a native command's redirected stderr into a terminating error, so
+# relax ErrorAction just for the ssh call and keep only stdout (the JSON).
+$prevEA = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+$out = ssh -o BatchMode=yes $jet "cd $remoteDir && $remotePy -m engine.cli top --json --n 3" 2>$null | Out-String
+$ErrorActionPreference = $prevEA
+try { $j = $out | ConvertFrom-Json; Write-Host "    ok: $($j.items.Count) items ranked" -ForegroundColor Green }
 catch { Die "smoke test did not return valid JSON" }
 
 # 4. BUILD + INSTALL the extension -----------------------------------------
