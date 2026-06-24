@@ -199,5 +199,18 @@ class Store:
         snaps = self.conn.execute("SELECT COUNT(*) c FROM engagement").fetchone()["c"]
         return {"items": total, "enriched": enriched, "snapshots": snaps}
 
+    def health(self) -> dict:
+        """Liveness signal: corpus size + when collection last ran / last found new."""
+        row = self.conn.execute(
+            "SELECT MAX(last_seen) ls, MAX(first_seen) fs FROM items"
+        ).fetchone()
+        by_source = {
+            r["source"]: r["c"] for r in self.conn.execute(
+                "SELECT source, COUNT(*) c FROM items GROUP BY source"
+            )
+        }
+        return {"last_collect": row["ls"], "newest_item": row["fs"],
+                "by_source": by_source, **self.stats()}
+
     def close(self) -> None:
         self.conn.close()

@@ -14,6 +14,7 @@ _EMOJI = {
     "reddit": "👽",
     "github": "🐙",
     "huggingface": "🤗",
+    "lobsters": "🦞",
 }
 
 

@@ -68,32 +68,41 @@ penalty = 0.5
 
 [sources.arxiv]
 enabled = true
-categories = ["cs.LG", "cs.AI", "cs.CL", "cs.MA"]
-max_results = 60
+categories = ["cs.LG", "cs.AI", "cs.CL", "cs.MA", "cs.CV", "cs.NE", "stat.ML"]
+max_results = 100
 
 [sources.hackernews]
 enabled = true
 # One full-text query per term (Algolia isn't boolean); results are merged.
-queries = ["AI", "LLM", "language model", "AI agent", "open weights", "fine-tuning"]
+queries = ["AI", "LLM", "language model", "AI agent", "open weights", "fine-tuning",
+           "diffusion model", "RAG", "inference", "transformer", "multimodal"]
 max_results = 40        # per query
 min_points = 2
 
 [sources.reddit]
 enabled = true
-subreddits = ["LocalLLaMA", "MachineLearning", "singularity", "LLMDevs"]
+subreddits = ["LocalLLaMA", "MachineLearning", "singularity", "LLMDevs",
+              "artificial", "OpenAI", "StableDiffusion", "AI_Agents", "LocalLLM"]
 listing = "new"          # new | hot | rising
 limit_per_sub = 40
 
 [sources.github]
 enabled = true
 # Searched as: created:>{recent} stars:>=min_stars (topic OR topic ...)
-topics = ["llm", "ai-agents", "machine-learning", "generative-ai", "rag"]
+topics = ["llm", "ai-agents", "machine-learning", "generative-ai", "rag",
+          "transformers", "diffusion-models", "llmops"]
 min_stars = 8
-max_results = 50
+max_results = 80
 # Optional: set the GITHUB_TOKEN env var to raise the rate limit (10/hr -> 30/min).
 
 [sources.huggingface]
 enabled = true
 # Pulls trending models and the daily papers feed.
-models_limit = 40
+models_limit = 60
 include_daily_papers = true
+
+[sources.lobsters]
+enabled = true
+# lobste.rs tag feeds (HN-like community, strong early dev/AI signal).
+tags = ["ai", "ml"]
+min_score = 1

@@ -13,9 +13,12 @@ import argparse
 import json
 import sys
 
+from datetime import datetime, timezone
+
 from .config import Config
 from .digest import render_markdown, write
 from .pipeline import collect as run_collect, rank as run_rank
+from .store import Store
 
 
 def _parse_since(s: str | None) -> float | None:
@@ -66,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("collect", help="scrape and enrich into the corpus")
+    sub.add_parser("status", help="health: corpus size, last collect, freshness")
 
     p_top = sub.add_parser("top", help="rank the corpus and write a digest")
     p_top.add_argument("--query", default=None, help="topic to focus on")
@@ -83,6 +87,23 @@ def main(argv: list[str] | None = None) -> int:
         _progress("Collecting…")
         stats = run_collect(cfg, _progress)
         print(json.dumps(stats))
+        return 0
+
+    if args.cmd == "status":
+        store = Store(cfg.db_path)
+        h = store.health()
+        store.close()
+
+        def _ago(iso):
+            if not iso:
+                return "never"
+            mins = (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60
+            return f"{mins:.0f} min ago" if mins < 120 else f"{mins/60:.1f} h ago"
+
+        print(f"corpus:       {h['items']} items ({h['enriched']} enriched), {h['snapshots']} snapshots")
+        print(f"last collect: {_ago(h['last_collect'])}")
+        print(f"newest item:  {_ago(h['newest_item'])}")
+        print("by source:    " + ", ".join(f"{k} {v}" for k, v in sorted(h["by_source"].items())))
         return 0
 
     if args.cmd == "top":
