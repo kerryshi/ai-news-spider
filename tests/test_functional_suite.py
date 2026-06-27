@@ -325,6 +325,84 @@ class TestAttachSummaries(unittest.TestCase):
             P._ollama = orig
 
 
+# ──────── regression: attach_summaries caps generation + bounds each call ──
+class TestAttachSummariesCap(unittest.TestCase):
+    """Cold-load fix (2026-06-27): a `top` click summarized ALL ranked items
+    synchronously (up to default_top_n=20 serial llama3.1 calls), blocking ~20-60s.
+    attach_summaries now generates only the top `cap` and passes a per-call timeout."""
+
+    class _FakeOllama:
+        available = True
+
+        def __init__(self):
+            self.timeouts = []
+
+        def summarize(self, system, user, timeout=None):
+            self.timeouts.append(timeout)
+            return "A concise readable summary."
+
+        def close(self):
+            pass
+
+    class _FakeStore:           # don't touch the real state.db
+        def __init__(self, _path):
+            self.saved = []
+
+        def set_summary(self, item_id, s):
+            self.saved.append((item_id, s))
+
+        def close(self):
+            pass
+
+    def _patch(self, fake_oll):
+        import engine.pipeline as P
+        self._orig = (P._ollama, P.Store)
+        P._ollama = lambda cfg: fake_oll
+        P.Store = self._FakeStore
+
+    def _unpatch(self):
+        import engine.pipeline as P
+        P._ollama, P.Store = self._orig
+
+    def test_caps_generation_to_top_n(self):
+        items = [_item(url=f"http://x/c{i}") for i in range(12)]
+        fake = self._FakeOllama()
+        self._patch(fake)
+        try:
+            attach_summaries(CFG, items, cap=3, timeout=9.5)
+        finally:
+            self._unpatch()
+        self.assertEqual(len(fake.timeouts), 3)                  # only top 3 summarized
+        self.assertTrue(all(items[i].llm_summary for i in range(3)))
+        self.assertTrue(all(items[i].llm_summary == "" for i in range(3, 12)))  # rest untouched
+
+    def test_per_call_timeout_threaded_through(self):
+        items = [_item(url=f"http://x/t{i}") for i in range(2)]
+        fake = self._FakeOllama()
+        self._patch(fake)
+        try:
+            attach_summaries(CFG, items, cap=5, timeout=7.0)
+        finally:
+            self._unpatch()
+        self.assertEqual(fake.timeouts, [7.0, 7.0])              # bound passed to every call
+
+    def test_already_cached_top_skips_generation(self):
+        items = [_item(url=f"http://x/s{i}") for i in range(5)]
+        for it in items[:3]:
+            it.llm_summary = "cached"
+        fake = self._FakeOllama()
+        self._patch(fake)
+        try:
+            attach_summaries(CFG, items, cap=3)                 # top 3 already have summaries
+        finally:
+            self._unpatch()
+        self.assertEqual(len(fake.timeouts), 0)                 # nothing to generate
+
+    def test_config_exposes_summary_cap_and_timeout(self):
+        self.assertGreaterEqual(int(CFG.get("ranking", "summary_top_n", default=0)), 1)
+        self.assertGreater(float(CFG.get("ollama", "summary_timeout_s", default=0)), 0)
+
+
 # ──────── regression: reddit backoff survives an HTTP-date Retry-After ─────
 class TestRedditBackoff(unittest.TestCase):
     def test_http_date_retry_after_does_not_raise(self):

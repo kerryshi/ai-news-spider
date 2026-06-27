@@ -223,13 +223,26 @@ def rank(
 
 # ========================= READABLE SUMMARIES ================================ #
 def attach_summaries(
-    cfg: Config, items: list[Item], progress: Progress | None = None
+    cfg: Config,
+    items: list[Item],
+    progress: Progress | None = None,
+    cap: int | None = None,
+    timeout: float | None = None,
 ) -> list[Item]:
-    """Ensure each shown item has a readable LLM summary, generating + caching any
-    that are missing. Only the items passed in (i.e. the ones actually displayed)
-    cost a call, and each is paid for exactly once — cached in the DB thereafter."""
+    """Ensure the TOP shown items have a readable LLM summary, generating + caching
+    any that are missing. Only the top `cap` items (default `ranking.summary_top_n`)
+    cost a call — this bounds a cold-corpus `top` click to ~cap serial llama3.1 calls
+    instead of len(items); lower-ranked items render via the reason/abstract fallback
+    in digest.py. Each summary is paid for exactly once — cached in the DB thereafter.
+    `timeout` (default `ollama.summary_timeout_s`) bounds each individual call."""
     log = progress or (lambda _m: None)
-    missing = [it for it in items if not getattr(it, "llm_summary", "")]
+    if cap is None:
+        cap = int(cfg.get("ranking", "summary_top_n", default=8))
+    if timeout is None:
+        timeout = float(cfg.get("ollama", "summary_timeout_s", default=20.0))
+    # items arrive rank-sorted; only the top `cap` are summarized on demand.
+    pool = items[:cap] if cap and cap > 0 else items
+    missing = [it for it in pool if not getattr(it, "llm_summary", "")]
     if not missing:
         return items
     ollama = _ollama(cfg)
@@ -244,7 +257,7 @@ def attach_summaries(
             f"source: {it.source}\ntitle: {it.title}\n"
             f"details: {(it.summary or '')[:900]}"
         )
-        s = ollama.summarize(SUMMARY_SYSTEM, user)
+        s = ollama.summarize(SUMMARY_SYSTEM, user, timeout=timeout)
         if s:
             s = _strip_preamble(s)
             if len(s) > 320:                       # never cut mid-word

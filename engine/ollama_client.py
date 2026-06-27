@@ -76,10 +76,16 @@ class OllamaClient:
             return None
 
     # ---- plain-text summary ----------------------------------------------
-    def summarize(self, system: str, user: str) -> str | None:
-        """Free-text completion (no JSON mode) for a readable 1-2 sentence summary."""
+    def summarize(self, system: str, user: str, timeout: float | None = None) -> str | None:
+        """Free-text completion (no JSON mode) for a readable 1-2 sentence summary.
+
+        `timeout` bounds this single call. Passed to httpx only when set: httpx reads
+        `timeout=None` as "wait forever" (overriding the client default), so omitting
+        the kwarg is what falls back to the 60s client default.
+        """
         if not self.available:
             return None
+        kwargs = {"timeout": timeout} if timeout is not None else {}
         try:
             r = self._client.post(
                 f"{self.host}/api/chat",
@@ -92,6 +98,7 @@ class OllamaClient:
                         {"role": "user", "content": user},
                     ],
                 },
+                **kwargs,
             )
             r.raise_for_status()
             return (r.json()["message"]["content"] or "").strip()

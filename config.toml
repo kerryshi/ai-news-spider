@@ -17,6 +17,10 @@ chat_model = "llama3.1:8b"        # relevance + earliness judging
 embed_model = "nomic-embed-text"  # novelty / dedup
 # Skip the LLM scoring step (faster, less precise) by setting to false.
 use_llm_scoring = true
+# Per-call cap (seconds) for the on-demand readable-summary request, so a single
+# slow/hung llama3.1 call can't stall the whole `top` digest. Other calls use the
+# 60s client default.
+summary_timeout_s = 20
 
 [relevance]
 # The LLM scores each item against this description of what you care about.
@@ -53,6 +57,10 @@ weight_earliness = 0.15    # LLM "how pre-mainstream"
 weight_query = 0.30        # topic similarity, only when `top --query` is used
 default_top_n = 20
 default_since_hours = 72    # only rank items first published within this window
+# Only the top N shown items get an on-demand readable LLM "What it is —" summary;
+# lower-ranked items fall back to the earliness reason / source abstract. Bounds the
+# cold-load latency of a `top` click to ~N serial llama3.1 calls instead of default_top_n.
+summary_top_n = 8
 
 [suppression]
 # Topics already covered by these domains are downranked as "already broke".
