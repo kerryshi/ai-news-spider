@@ -166,6 +166,14 @@ class TestDigest(unittest.TestCase):
         self.assertIn("1.23", md)
         self.assertIn("1 items", md)
 
+    def test_header_renders_in_eastern_not_utc(self):
+        from engine.digest import _DISPLAY_TZ
+        it = _item(title="X", url="http://x/1"); it.score = 1.0
+        header = render_markdown([it]).splitlines()[0]
+        self.assertNotIn("UTC", header)                      # no longer UTC
+        label = datetime.now(_DISPLAY_TZ).strftime("%Z")     # 'EDT' (summer) / 'EST' (winter)
+        self.assertTrue(label and label in header, f"expected {label!r} in {header!r}")
+
 
 # ───────────────────────── config integrity ───────────────────────────────
 class TestConfig(unittest.TestCase):

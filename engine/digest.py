@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .models import Item
+
+# Human-facing digest timestamps render in Eastern wall-clock (the digest is rendered
+# on the Jetson, whose system tz may differ). zoneinfo auto-handles EST/EDT; fall back
+# to a fixed-offset EST only where tzdata is absent (e.g. a minimal Windows test venv).
+try:
+    from zoneinfo import ZoneInfo
+    _DISPLAY_TZ = ZoneInfo("America/New_York")
+except Exception:                                       # pragma: no cover - env-dependent
+    _DISPLAY_TZ = timezone(timedelta(hours=-5), "EST")
 
 _EMOJI = {
     "arxiv": "📄",
@@ -63,7 +72,7 @@ def _excerpt(text: str, max_chars: int = 320) -> str:
 
 
 def render_markdown(items: list[Item], subtitle: str = "") -> str:
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M %Z")
     lines = [
         f"# AI early-signal digest — {now}",
         "",
@@ -118,7 +127,7 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
 
 
 def write(items: list[Item], digest_dir: Path) -> tuple[Path, Path]:
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(_DISPLAY_TZ).strftime("%Y%m%d-%H%M%S")
     md_path = digest_dir / f"digest-{stamp}.md"
     json_path = digest_dir / f"digest-{stamp}.json"
     md = render_markdown(items)
