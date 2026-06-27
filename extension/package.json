@@ -2,7 +2,7 @@
   "name": "ai-signal-scraper",
   "displayName": "AI Signal Scraper",
   "description": "Surface emerging, not-yet-mainstream AI tech news from arXiv, HN, Reddit, GitHub & Hugging Face — ranked locally with Ollama.",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "publisher": "kerryshi",
   "engines": {
     "vscode": "^1.85.0"
@@ -79,8 +79,8 @@
         },
         "aiSignal.refreshMinutes": {
           "type": "number",
-          "default": 0,
-          "description": "Silently refresh the status-bar signal every N minutes (0 = off)."
+          "default": 20,
+          "description": "Silently refresh the badge + digest every N minutes so an open preview stays live and a failed startup fetch self-heals (0 = off). Default matches the Jetson's 20-min collect cron."
         }
       }
     },

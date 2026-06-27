@@ -12,7 +12,7 @@ digest_size = 25
 digest_path = "digests"
 
 [ollama]
-host = "http://localhost:11434"
+host = "http://192.168.55.100:11434"
 chat_model = "llama3.1:8b"        # relevance + earliness judging
 embed_model = "nomic-embed-text"  # novelty / dedup
 # Skip the LLM scoring step (faster, less precise) by setting to false.
@@ -65,40 +65,67 @@ mainstream_domains = [
 penalty = 0.5
 
 # ── Sources ──────────────────────────────────────────────────────────────────
+# NOTE (2026-06-27): source breadth widened to attack the net-new bottleneck.
+# The collector re-polls the same recency-sorted feeds every 20 min, so ~99.5% of
+# each fetch was already in the corpus and net-new ran ~8/hr. Raising per-source
+# caps does NOT help (recency-sorted feeds just re-serve older seen items); reaching
+# DIFFERENT slices of the universe does. So: more subreddits, more HN queries, more
+# arXiv categories. arXiv max_results raised because its once-daily batch (300-600
+# papers in cs.*) was being truncated at 100. Caps + novelty threshold left alone.
 
 [sources.arxiv]
 enabled = true
-categories = ["cs.LG", "cs.AI", "cs.CL", "cs.MA", "cs.CV", "cs.NE", "stat.ML"]
-max_results = 100
+# Broadened beyond core ML/NLP/CV into IR (RAG/retrieval), RO (embodied agents),
+# SE (AI-for-code), CR (AI security), SD/eess.AS (audio/speech models).
+categories = ["cs.LG", "cs.AI", "cs.CL", "cs.MA", "cs.CV", "cs.NE", "stat.ML",
+              "cs.IR", "cs.RO", "cs.SE", "cs.CR", "cs.SD", "eess.AS"]
+# Raised 100 -> 250: arXiv announces once/day in a large batch; 100 truncated it,
+# silently dropping genuinely-new papers right after the daily announce.
+max_results = 250
 
 [sources.hackernews]
 enabled = true
 # One full-text query per term (Algolia isn't boolean); results are merged.
+# Widened with model-family + tooling terms to reach distinct rising stories.
 queries = ["AI", "LLM", "language model", "AI agent", "open weights", "fine-tuning",
-           "diffusion model", "RAG", "inference", "transformer", "multimodal"]
+           "diffusion model", "RAG", "inference", "transformer", "multimodal",
+           "agentic", "GPT", "vector database", "embeddings", "open source AI",
+           "machine learning", "neural network", "vLLM", "quantization",
+           "Claude AI", "Mistral", "reasoning model", "Llama"]
 max_results = 40        # per query
 min_points = 2
 
 [sources.reddit]
 enabled = true
+# Widened from 9 -> 21 communities. Bad/empty sub names simply no-op (the adapter
+# catches the 404 and continues), so over-including costs nothing.
 subreddits = ["LocalLLaMA", "MachineLearning", "singularity", "LLMDevs",
-              "artificial", "OpenAI", "StableDiffusion", "AI_Agents", "LocalLLM"]
+              "artificial", "OpenAI", "StableDiffusion", "AI_Agents", "LocalLLM",
+              "deeplearning", "computervision", "LanguageTechnology", "MLQuestions",
+              "ClaudeAI", "ollama", "mcp", "ArtificialInteligence", "AgentsOfAI",
+              "OpenSourceAI", "GPT3", "aiagents", "voiceai"]
 listing = "new"          # new | hot | rising
 limit_per_sub = 40
+request_delay = 0.8      # seconds between sub fetches (Reddit 429s rapid bursts)
+max_retries = 1          # 1 backoff retry/sub: Reddit's throttle is IP-wide, so
+                         # chasing all subs per cycle is costly; ~2-4 land each run
+                         # and coverage rotates across the 20-min cycles instead.
 
 [sources.github]
 enabled = true
 # Searched as: created:>{recent} stars:>=min_stars (topic OR topic ...)
+# Kept at 10 topics: unauthenticated GitHub search is ~10 req/min, one req/topic.
+# Set GITHUB_TOKEN to go wider. max_results raised so per_topic (=max/len) stays ~15.
 topics = ["llm", "ai-agents", "machine-learning", "generative-ai", "rag",
-          "transformers", "diffusion-models", "llmops"]
+          "transformers", "diffusion-models", "llmops", "deep-learning", "nlp"]
 min_stars = 8
-max_results = 80
+max_results = 150
 # Optional: set the GITHUB_TOKEN env var to raise the rate limit (10/hr -> 30/min).
 
 [sources.huggingface]
 enabled = true
 # Pulls trending models and the daily papers feed.
-models_limit = 60
+models_limit = 80
 include_daily_papers = true
 
 [sources.lobsters]

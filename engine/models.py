@@ -26,7 +26,8 @@ class Item:
     relevance: float = 0.0      # 0..10 from the local LLM
     earliness: float = 0.0      # 0..10 from the local LLM
     score: float = 0.0          # final ranking score
-    reason: str = ""            # one-line LLM justification
+    reason: str = ""            # one-line LLM justification (earliness take)
+    llm_summary: str = ""       # plain-English "what it is + why it matters" (cached, lazy)
     tags: list[str] = field(default_factory=list)
 
     @property

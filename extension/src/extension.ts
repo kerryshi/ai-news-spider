@@ -13,7 +13,9 @@ export function activate(context: vscode.ExtensionContext) {
   output = vscode.window.createOutputChannel("AI Signal");
 
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  statusItem.command = "aiSignal.openLatest";
+  // Clicking the badge refetches fresh + opens the digest (was: open the cached
+  // file, which could be a day stale). "Open last digest" still opens the cache.
+  statusItem.command = "aiSignal.top";
   idleStatus();
   statusItem.show();
 
@@ -46,7 +48,7 @@ function cfg() {
 
 function idleStatus() {
   statusItem.text = "$(radar) AI Signal";
-  statusItem.tooltip = "Click for the latest AI signal digest";
+  statusItem.tooltip = "Click to refresh & open the latest AI signal digest";
 }
 
 function sshTarget(): string | undefined {
@@ -100,6 +102,18 @@ function runRemote(engineArgs: string, title: string): Thenable<{ stdout: string
   );
 }
 
+/**
+ * Write the digest atomically (write a sibling temp file, then rename over the
+ * target). An open markdown preview watches this file; a plain writeFileSync can
+ * be observed mid-write and render a truncated digest. Rename is atomic on Win/
+ * POSIX, so the preview only ever sees a complete file and live-updates cleanly.
+ */
+function writeDigest(file: string, md: string) {
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, md, "utf-8");
+  fs.renameSync(tmp, file);
+}
+
 async function showTop(query?: string, openPreview = true) {
   if (busy) return;
   const n = cfg().get<number>("defaultTopN") ?? 20;
@@ -118,9 +132,15 @@ async function showTop(query?: string, openPreview = true) {
     const result = JSON.parse(stdout);
     const items = result.items ?? [];
     updateStatus(items, query);
+    // Always refresh the on-disk digest so an already-open preview live-updates,
+    // even on silent (timer / post-collect) refreshes. Previously the file was only
+    // rewritten when openPreview was true, so background refreshes left the preview
+    // stale. Only steal focus / open the preview when explicitly asked.
+    const file = path.join(os.tmpdir(), "ai-signal-latest.md");
+    if (result.digest_markdown) {
+      writeDigest(file, result.digest_markdown);
+    }
     if (openPreview) {
-      const file = path.join(os.tmpdir(), "ai-signal-latest.md");
-      fs.writeFileSync(file, result.digest_markdown ?? "", "utf-8");
       vscode.commands.executeCommand("markdown.showPreview", vscode.Uri.file(file));
     }
   } catch {

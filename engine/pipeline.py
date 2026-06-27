@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Callable
 
@@ -28,6 +29,35 @@ JUDGE_SYSTEM = (
     '"tags": ["..."]}. relevance = fit to the focus. earliness = how pre-mainstream '
     "/ under-the-radar it is (10 = almost nobody is talking about it yet)."
 )
+
+SUMMARY_SYSTEM = (
+    "Brief a busy AI builder so they can decide whether to open a link WITHOUT reading "
+    "it. Write two short sentences, <=40 words total, plain English. First sentence: "
+    "what it actually is. Second sentence: why it matters or who should care. Do not "
+    "number or label the sentences. Start directly with the content — no 'Here', 'Sure', "
+    "'This article/post/repo', or 'Summary:' opener. No markdown, no hype. If the input "
+    "is thin, infer from the title."
+)
+
+# Models (llama3.1:8b) still leak boilerplate openers despite the prompt; strip them.
+_PREAMBLE = re.compile(
+    r"^\s*(here(?:'s| is| are)[^:.]{0,50}[:.]\s*|sure[,!.]?\s*|okay[,!.]?\s*|"
+    r"summary[:.]\s*|in (?:summary|short)[,:]\s*|tl;?dr[:.]?\s*)",
+    re.I,
+)
+
+
+def _strip_preamble(s: str) -> str:
+    s = " ".join((s or "").split())
+    # Drop leaked "(1)"/"(2)" sentence labels, but ONLY at the start or after a
+    # sentence boundary — otherwise real prose like "scores 1) first 2) second"
+    # gets gutted. Keep the captured boundary (group 1), drop just the label.
+    s = re.sub(r"(^|[.!?]\s+)\(?[12]\)\s*", r"\1", s)
+    prev = None
+    while s and s != prev:          # peel stacked openers, e.g. "Sure! Here's a brief:"
+        prev = s
+        s = _PREAMBLE.sub("", s)
+    return s[:1].upper() + s[1:] if s else s
 
 
 def _ollama(cfg: Config) -> OllamaClient:
@@ -127,6 +157,7 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
     pruned = store.prune(retention)
     stats = store.stats()
     store.close()
+    ollama.close()
     log(f"✓ enriched {enriched} new · pruned {pruned} · corpus {stats['items']} items")
     return {"enriched": enriched, "pruned": pruned, **stats}
 
@@ -148,7 +179,9 @@ def rank(
 
     query_vec = None
     if query:
-        query_vec = _ollama(cfg).embed(query)
+        oc = _ollama(cfg)
+        query_vec = oc.embed(query)
+        oc.close()
 
     weights = {
         "velocity": float(cfg.get("ranking", "weight_velocity", default=0.30)),
@@ -186,3 +219,38 @@ def rank(
     items.sort(key=lambda x: x.score, reverse=True)
     store.close()
     return items[:n]
+
+
+# ========================= READABLE SUMMARIES ================================ #
+def attach_summaries(
+    cfg: Config, items: list[Item], progress: Progress | None = None
+) -> list[Item]:
+    """Ensure each shown item has a readable LLM summary, generating + caching any
+    that are missing. Only the items passed in (i.e. the ones actually displayed)
+    cost a call, and each is paid for exactly once — cached in the DB thereafter."""
+    log = progress or (lambda _m: None)
+    missing = [it for it in items if not getattr(it, "llm_summary", "")]
+    if not missing:
+        return items
+    ollama = _ollama(cfg)
+    if not ollama.available:
+        log("⚠ Ollama unreachable — showing items without readable summaries.")
+        ollama.close()          # don't leak the httpx client on the early return
+        return items
+    store = Store(cfg.db_path)
+    log(f"  summarizing {len(missing)} new item(s) for readability…")
+    for it in missing:
+        user = (
+            f"source: {it.source}\ntitle: {it.title}\n"
+            f"details: {(it.summary or '')[:900]}"
+        )
+        s = ollama.summarize(SUMMARY_SYSTEM, user)
+        if s:
+            s = _strip_preamble(s)
+            if len(s) > 320:                       # never cut mid-word
+                s = s[:320].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+            it.llm_summary = s
+            store.set_summary(it.id, s)
+    store.close()
+    ollama.close()
+    return items

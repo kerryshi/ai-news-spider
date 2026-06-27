@@ -24,6 +24,7 @@ _EXTRA_COLUMNS = {
     "tags": "TEXT",          # json list
     "novelty": "REAL DEFAULT 1",
     "enriched": "INTEGER DEFAULT 0",
+    "llm_summary": "TEXT",   # cached plain-English readable summary (lazy backfill)
 }
 
 
@@ -114,6 +115,13 @@ class Store:
         )
         self.conn.commit()
 
+    def set_summary(self, item_id: str, summary: str) -> None:
+        """Cache a readable LLM summary for an item (lazy backfill at render time)."""
+        self.conn.execute(
+            "UPDATE items SET llm_summary = ? WHERE id = ?", (summary, item_id)
+        )
+        self.conn.commit()
+
     def has(self, item_id: str) -> bool:
         return self.conn.execute(
             "SELECT 1 FROM items WHERE id = ?", (item_id,)
@@ -168,6 +176,7 @@ class Store:
             it.earliness = r["earliness"] or 0.0
             it.novelty = r["novelty"] if r["novelty"] is not None else 1.0
             it.reason = r["reason"] or ""
+            it.llm_summary = (r["llm_summary"] if "llm_summary" in r.keys() else "") or ""
             try:
                 it.tags = json.loads(r["tags"]) if r["tags"] else []
             except Exception:

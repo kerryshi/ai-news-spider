@@ -27,6 +27,15 @@ class OllamaClient:
         except Exception:
             return False
 
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
     # ---- embeddings -------------------------------------------------------
     def embed(self, text: str) -> list[float] | None:
         if not self.available:
@@ -63,6 +72,29 @@ class OllamaClient:
             r.raise_for_status()
             content = r.json()["message"]["content"]
             return json.loads(content)
+        except Exception:
+            return None
+
+    # ---- plain-text summary ----------------------------------------------
+    def summarize(self, system: str, user: str) -> str | None:
+        """Free-text completion (no JSON mode) for a readable 1-2 sentence summary."""
+        if not self.available:
+            return None
+        try:
+            r = self._client.post(
+                f"{self.host}/api/chat",
+                json={
+                    "model": self.chat_model,
+                    "stream": False,
+                    "options": {"temperature": 0.2},
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                },
+            )
+            r.raise_for_status()
+            return (r.json()["message"]["content"] or "").strip()
         except Exception:
             return None
 

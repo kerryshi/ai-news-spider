@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from .config import Config
 from .digest import render_markdown, write
-from .pipeline import collect as run_collect, rank as run_rank
+from .pipeline import collect as run_collect, rank as run_rank, attach_summaries
 from .store import Store
 
 
@@ -41,6 +41,7 @@ def _progress(msg: str) -> None:
 
 def _emit_top(cfg: Config, query, since_hours, n, as_json: bool) -> None:
     items = run_rank(cfg, query=query, since_hours=since_hours, n=n)
+    items = attach_summaries(cfg, items, _progress)  # lazy, cached readable summaries
     bits = []
     if query:
         bits.append(f"topic: {query}")
