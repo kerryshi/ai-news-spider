@@ -78,10 +78,23 @@ def main() -> None:
     store.close()
 
     # --- full rank() latency + per-stage breakdown ---------------------------
+    # rank() opens cfg.db_path itself; shim it so it targets the benched DB too.
+    class _Cfg:
+        def __init__(self, base, dbp):
+            self._b, self._db = base, dbp
+
+        def __getattr__(self, name):
+            return getattr(self._b, name)
+
+        @property
+        def db_path(self):
+            return self._db
+
+    bcfg = _Cfg(cfg, db)
     print("\n[rank() full]")
     for label in ("cold", "warm"):
         t = time.perf_counter()
-        rank(cfg, n=20)
+        rank(bcfg, n=20)
         dt = time.perf_counter() - t
         tm = getattr(rank, "last_timings", {})
         print(f"  {label:4} : {ms(dt)}   "
