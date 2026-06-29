@@ -190,11 +190,19 @@ class TestConfig(unittest.TestCase):
 # ───────────────────────── live smoke: sources ────────────────────────────
 class TestLiveSources(unittest.TestCase):
     def test_each_source_returns_items(self):
+        import httpx
+        reached = 0
         for name in REGISTRY:
             if not CFG.source_enabled(name):
                 continue
-            with self.subTest(source=name):
+            try:
                 got = list(REGISTRY[name](CFG.source(name)))
+            except (httpx.HTTPError, OSError):
+                # Source/network unreachable -> don't redden CI on a 3rd-party outage.
+                # A real code bug raises something else and still fails the test.
+                continue
+            reached += 1
+            with self.subTest(source=name):
                 self.assertIsInstance(got, list)
                 for it in got[:5]:
                     self.assertIsInstance(it, Item)
@@ -204,6 +212,8 @@ class TestLiveSources(unittest.TestCase):
                 if name != "reddit":
                     self.assertGreater(len(got), 0, f"{name} returned nothing")
                 print(f"    [{name}] {len(got)} items")
+        if reached == 0:
+            self.skipTest("no sources reachable (offline?) — skipping live source smoke")
 
 
 # ───────────────────────── live: ollama ───────────────────────────────────
