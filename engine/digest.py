@@ -126,6 +126,91 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
     return "\n".join(lines)
 
 
+def _h(text: str) -> str:
+    """Escape text for an HTML body/attribute context."""
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+_HTML_STYLE = (
+    ":root{color-scheme:light dark}"
+    "body{font:16px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;"
+    "margin:2rem auto;padding:0 1rem}"
+    "h1{font-size:1.5rem;margin-bottom:.2rem}.sub{color:#888;font-size:.9rem;margin-bottom:1.5rem}"
+    "ol.glance{padding-left:1.4rem}ol.glance li{margin:.3rem 0}"
+    ".score{font:.8rem monospace;color:#888}"
+    ".card{border-top:1px solid #8883;padding:1rem 0}.card h2{font-size:1.1rem;margin:0 0 .3rem}"
+    ".meta{color:#888;font-size:.85rem;margin:.2rem 0 .5rem}.tags{color:#777;font:.8rem monospace}"
+    "blockquote{border-left:3px solid #8884;margin:.6rem 0;padding-left:.8rem;color:#999}"
+    "a{color:#2a7ae2;text-decoration:none}a:hover{text-decoration:underline}"
+)
+
+
+def render_html(items: list[Item], subtitle: str = "") -> str:
+    """A self-contained HTML digest (inline CSS, no external assets) — opens in any
+    browser with no engine/Jetson/network running. The portable, demoable view."""
+    now = datetime.now(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M %Z")
+    sub = f"{len(items)} items · ranked by velocity · novelty · relevance · earliness"
+    if subtitle:
+        sub += f" · {_h(subtitle)}"
+    out = [
+        "<!doctype html>",
+        '<html lang="en"><head><meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        f"<title>AI early-signal digest — {_h(now)}</title>",
+        f"<style>{_HTML_STYLE}</style></head><body>",
+        f"<h1>AI early-signal digest — {_h(now)}</h1>",
+        f'<p class="sub">{sub}</p>',
+    ]
+    if not items:
+        out.append("<p><em>No items matched.</em></p></body></html>")
+        return "\n".join(out)
+
+    out.append('<h2>⚡ At a glance</h2><ol class="glance">')
+    for it in items:
+        emoji = _EMOJI.get(it.source, "•")
+        gist = _takeaway(it)
+        tail = f" — {_h(gist)}" if gist else ""
+        out.append(
+            f'<li>{emoji} <a href="{_h(it.url)}">{_h(it.title)}</a> '
+            f'<span class="score">{it.score:.2f}</span>{tail}</li>'
+        )
+    out.append("</ol>")
+
+    for i, it in enumerate(items, 1):
+        emoji = _EMOJI.get(it.source, "•")
+        out.append('<div class="card">')
+        out.append(f'<h2>{i}. {emoji} <a href="{_h(it.url)}">{_h(it.title)}</a></h2>')
+        meta = [f"<strong>{it.score:.2f}</strong>", _h(it.source)]
+        if it.relevance or it.earliness:
+            meta.append(f"rel {it.relevance:.0f} · early {it.earliness:.0f}")
+        meta.append(f"vel {it.velocity:.1f}/h")
+        meta.append(f"nov {it.novelty:.2f}")
+        out.append(f'<div class="meta">{" · ".join(meta)}</div>')
+        summary = _clean(it.llm_summary)
+        if summary:
+            out.append(f"<p><strong>What it is —</strong> {_h(summary)}</p>")
+        elif it.reason:
+            out.append(f"<p><strong>Why it's early —</strong> {_h(_clean(it.reason))}</p>")
+        if it.tags:
+            out.append(f'<div class="tags">{_h(" ".join(it.tags))}</div>')
+        excerpt = _excerpt(it.summary)
+        if excerpt and excerpt != summary:
+            out.append(f"<blockquote>{_h(excerpt)}</blockquote>")
+        byline = f'🔗 <a href="{_h(it.url)}">{_h(it.source)}</a>'
+        if it.author:
+            byline += f" · {_h(it.author)}"
+        out.append(f'<div class="meta">{byline}</div>')
+        out.append("</div>")
+    out.append("</body></html>")
+    return "\n".join(out)
+
+
 def write(items: list[Item], digest_dir: Path) -> tuple[Path, Path]:
     stamp = datetime.now(_DISPLAY_TZ).strftime("%Y%m%d-%H%M%S")
     md_path = digest_dir / f"digest-{stamp}.md"

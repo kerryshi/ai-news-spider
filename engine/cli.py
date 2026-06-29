@@ -15,9 +15,10 @@ import os
 import sys
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .config import Config
-from .digest import render_markdown, write
+from .digest import render_html, render_markdown, write
 from .pipeline import collect as run_collect, rank as run_rank, attach_summaries
 from .store import Store
 
@@ -40,7 +41,7 @@ def _progress(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
-def _emit_top(cfg: Config, query, since_hours, n, as_json: bool) -> None:
+def _emit_top(cfg: Config, query, since_hours, n, as_json: bool, html_path: Path | None = None) -> None:
     items = run_rank(cfg, query=query, since_hours=since_hours, n=n)
     items = attach_summaries(cfg, items, _progress)  # lazy, cached readable summaries
     bits = []
@@ -52,6 +53,11 @@ def _emit_top(cfg: Config, query, since_hours, n, as_json: bool) -> None:
     md = render_markdown(items, subtitle)
     md_path, _ = write(items, cfg.digest_dir)
     _progress(f"✓ ranked {len(items)} items → {md_path}")
+
+    if html_path is not None:
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        html_path.write_text(render_html(items, subtitle), encoding="utf-8")
+        _progress(f"✓ wrote self-contained HTML digest → {html_path}")
 
     if as_json:
         print(json.dumps(
@@ -78,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
     p_top.add_argument("--since", default=None, help="window, e.g. 24h or 3d")
     p_top.add_argument("--n", type=int, default=None, help="number of items")
     p_top.add_argument("--json", action="store_true")
+    p_top.add_argument(
+        "--html", nargs="?", const="<auto>", default=None,
+        help="also write a self-contained HTML digest (optional path; default digests/latest.html)",
+    )
 
     p_run = sub.add_parser("run", help="collect, then top (one-shot)")
     p_run.add_argument("--json", action="store_true")
@@ -111,7 +121,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "top":
-        _emit_top(cfg, args.query, _parse_since(args.since), args.n, args.json)
+        html_path = None
+        if args.html is not None:
+            html_path = (cfg.digest_dir / "latest.html") if args.html == "<auto>" else Path(args.html)
+        _emit_top(cfg, args.query, _parse_since(args.since), args.n, args.json, html_path=html_path)
         return 0
 
     if args.cmd == "run":
