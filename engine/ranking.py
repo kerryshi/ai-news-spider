@@ -10,6 +10,28 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 
+_BASE_KEYS = ("velocity", "novelty", "relevance", "earliness")
+
+
+def normalize_weights(weights: dict) -> dict:
+    """Return a copy with the four base components scaled to sum to 1.0 (keeping their
+    proportions); the optional additive 'query' bump is left as-is. A zero/empty base
+    falls back to equal weights so ranking never divides by zero or silently sums <1."""
+    total = sum(float(weights.get(k, 0.0)) for k in _BASE_KEYS)
+    out = dict(weights)
+    for k in _BASE_KEYS:
+        out[k] = (float(weights.get(k, 0.0)) / total) if total > 0 else 1.0 / len(_BASE_KEYS)
+    return out
+
+
+def _clamp10(value: float) -> float:
+    """Clamp a 0-10 LLM score into range; a malformed value -> 0. Guards against a model
+    that returns e.g. 50 or a non-number, which would otherwise inflate the composite."""
+    try:
+        return max(0.0, min(10.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.0
+
 
 def velocity_from_endpoints(
     n: int, first_val: float, last_val: float, span_hours: float, age_hours: float
@@ -68,8 +90,8 @@ def composite(
     base = (
         weights.get("velocity", 0.0) * norm_vel
         + weights.get("novelty", 0.0) * item.novelty
-        + weights.get("relevance", 0.0) * (item.relevance / 10.0)
-        + weights.get("earliness", 0.0) * (item.earliness / 10.0)
+        + weights.get("relevance", 0.0) * (_clamp10(item.relevance) / 10.0)
+        + weights.get("earliness", 0.0) * (_clamp10(item.earliness) / 10.0)
     )
     if query_sim is not None:
         base += weights.get("query", 0.0) * max(query_sim, 0.0)

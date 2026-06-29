@@ -4,7 +4,7 @@ velocity / freshness / composite logic."""
 from datetime import datetime, timezone, timedelta
 
 from engine.models import Item
-from engine.ranking import velocity, freshness, composite
+from engine.ranking import velocity, freshness, composite, normalize_weights
 
 
 def _item(**kw) -> Item:
@@ -72,3 +72,29 @@ def test_age_decays_score():
                     mainstream_domains=set(), penalty=0.5)
     assert old < fresh
     assert abs(old - fresh * 0.5) < 1e-9
+
+
+def test_normalize_weights_base_sums_to_one():
+    w = normalize_weights(
+        {"velocity": 0.30, "novelty": 0.20, "relevance": 0.25, "earliness": 0.15, "query": 0.30}
+    )
+    assert abs(sum(w[k] for k in ("velocity", "novelty", "relevance", "earliness")) - 1.0) < 1e-9
+    assert w["query"] == 0.30  # additive bump left untouched
+    assert abs(w["velocity"] - 0.30 / 0.90) < 1e-9  # proportions preserved
+
+
+def test_normalize_weights_zero_base_falls_back_to_equal():
+    w = normalize_weights({"query": 0.3})
+    assert abs(sum(w[k] for k in ("velocity", "novelty", "relevance", "earliness")) - 1.0) < 1e-9
+    assert abs(w["velocity"] - 0.25) < 1e-9
+
+
+def test_composite_clamps_out_of_range_llm_score():
+    # A malformed relevance (e.g. 50) must not inflate the score past the in-range max.
+    w = {"velocity": 0.0, "novelty": 0.0, "relevance": 1.0, "earliness": 0.0, "query": 0.0}
+    sane = composite(_item(relevance=10.0), age_hours=0, weights=w, max_velocity=1.0,
+                     halflife_hours=18, mainstream_domains=set(), penalty=0.5)
+    crazy = composite(_item(relevance=50.0), age_hours=0, weights=w, max_velocity=1.0,
+                      halflife_hours=18, mainstream_domains=set(), penalty=0.5)
+    assert sane == crazy           # 50 clamped to 10 -> identical score
+    assert abs(sane - 1.0) < 1e-9

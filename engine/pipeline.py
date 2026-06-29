@@ -17,7 +17,7 @@ from typing import Callable
 from .config import Config
 from .models import Item
 from .ollama_client import OllamaClient, cosine
-from .ranking import velocity_from_endpoints, composite
+from .ranking import velocity_from_endpoints, composite, normalize_weights
 from .store import Store
 from .sources import REGISTRY
 
@@ -210,6 +210,7 @@ def rank(
         "earliness": float(cfg.get("ranking", "weight_earliness", default=0.15)),
         "query": float(cfg.get("ranking", "weight_query", default=0.30)),
     }
+    weights = normalize_weights(weights)  # base components sum to 1.0; query stays additive
     halflife = float(cfg.get("ranking", "halflife_hours", default=18))
     mainstream = set(cfg.get("suppression", "mainstream_domains", default=[]))
     penalty = float(cfg.get("suppression", "penalty", default=0.5))
