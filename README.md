@@ -51,8 +51,8 @@ The `extension/` shell gives you a status-bar button + hotkeys (`Ctrl+Alt+A` Top
 ## Architecture (hybrid)
 
 ```
-JETSON (kershy@192.168.55.1)            DESKTOP (RTX 5070)
-  cron */30 → engine.cli collect          Ollama (llama3.1:8b + nomic-embed-text)
+JETSON (jetson@192.168.55.1)            DESKTOP (RTX 5070)
+  cron */20 → engine.cli collect          Ollama (llama3.1:8b + nomic-embed-text)
     scrape → store → enrich ─────calls────▶  (enrichment GPU)
     state.db (corpus)                       VS Code extension ──ssh──▶ engine.cli top
 ```

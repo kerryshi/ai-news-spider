@@ -18,10 +18,15 @@ $ErrorActionPreference = 'Stop'
 
 $root      = Split-Path $PSScriptRoot -Parent
 $py        = Join-Path $root ".venv\Scripts\python.exe"
-$jet       = "kershy@192.168.55.1"
-$remoteDir = "/home/kershy/ai-signal"
-$remotePy  = "/home/kershy/miniforge3/bin/python"
-$code      = "C:\Users\PC\AppData\Local\Programs\Microsoft VS Code\bin\code.cmd"
+# Host / identity come from env so nothing personal is committed. Set these (e.g. in
+# your PowerShell profile) before deploying; the fallbacks are generic placeholders.
+# 192.168.55.1 is the standard Jetson USB-gadget address; OLLAMA_LAN_HOST is YOUR
+# desktop's LAN address that the Jetson reaches Ollama on.
+$jet       = if ($env:JETSON_HOST)     { $env:JETSON_HOST }     else { "jetson@192.168.55.1" }
+$remoteDir = if ($env:JETSON_DIR)      { $env:JETSON_DIR }      else { "~/ai-signal" }
+$remotePy  = if ($env:JETSON_PYTHON)   { $env:JETSON_PYTHON }   else { "~/miniforge3/bin/python" }
+$ollamaLan = if ($env:OLLAMA_LAN_HOST) { $env:OLLAMA_LAN_HOST } else { "http://localhost:11434" }
+$code      = if ($env:VSCODE_CMD)      { $env:VSCODE_CMD }      else { "code" }
 function Step($m) { Write-Host "`n==> $m" -ForegroundColor Cyan }
 function Die($m)  { Write-Host "FAILED: $m" -ForegroundColor Red; exit 1 }
 
@@ -41,8 +46,9 @@ $sourcePy  = (Get-ChildItem "$root\engine\sources\*.py").FullName
 scp -q $enginePy "${jet}:${remoteDir}/engine/"
 scp -q $sourcePy "${jet}:${remoteDir}/engine/sources/"
 scp -q "$root\config.toml" "${jet}:${remoteDir}/config.toml"
-# the Jetson talks to THIS PC's Ollama, not localhost
-ssh -o BatchMode=yes $jet "cd $remoteDir && sed -i 's|http://localhost:11434|http://192.168.55.100:11434|' config.toml"
+# the Jetson talks to THIS PC's Ollama over the LAN, not its own localhost.
+# Set OLLAMA_LAN_HOST to your desktop's address; unset = no-op (Jetson uses localhost).
+ssh -o BatchMode=yes $jet "cd $remoteDir && sed -i 's|http://localhost:11434|$ollamaLan|' config.toml"
 Write-Host "    engine synced (cron picks it up next cycle)" -ForegroundColor DarkGray
 
 # 3. REMOTE SMOKE TEST ------------------------------------------------------

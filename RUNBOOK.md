@@ -20,7 +20,7 @@ Written for "I came back after a break and something's off." Skim the table, jum
 Three machines, one job: surface **not-yet-mainstream** AI news.
 
 ```
-   JETSON NANO  (kershy@192.168.55.1, USB link)        DESKTOP  (this PC, RTX 5070)
+   JETSON NANO  (jetson@192.168.55.1, USB link)        DESKTOP  (this PC, RTX 5070)
    ───────────────────────────────────────            ──────────────────────────────
    cron  */20 min →  engine.cli collect                Ollama  (llama3.1:8b + nomic-embed-text)
         scrape 6 sources                                  ▲   enrichment GPU
@@ -32,7 +32,7 @@ Three machines, one job: surface **not-yet-mainstream** AI news.
 ```
 
 - **Jetson** scrapes nonstop (arXiv, HN, Reddit, GitHub, Hugging Face, lobste.rs) and stores the corpus. It's too old to run LLMs.
-- **Desktop** runs Ollama; the Jetson calls it at `http://192.168.55.100:11434` for embeddings + scoring.
+- **Desktop** runs Ollama; the Jetson calls it at `http://<your-desktop-lan-ip>:11434` for embeddings + scoring.
 - **VS Code extension** (`kerryshi.ai-signal-scraper`) SSHes into the Jetson, runs `top`, and shows you the ranked digest.
 - Internet for the Jetson is **shared from the desktop** (ICS). No remote — everything is local.
 
@@ -72,9 +72,9 @@ An open markdown preview won't always pick up an external file change.
 
 ### Step C — Is the corpus actually fresh? (check the Jetson)
 ```powershell
-ssh kershy@192.168.55.1 "cd /home/kershy/ai-signal && /home/kershy/miniforge3/bin/python -m engine.cli status"
+ssh jetson@192.168.55.1 "cd /home/jetson/ai-signal && /home/jetson/miniforge3/bin/python -m engine.cli status"
 ```
-Look at **`last collect`** — it should be **< 20 min ago**. If it's hours/days old, the cron stalled or the Jetson lost internet (re-run `C:\Users\PC\AppData\Local\Temp\jetics.ps1` elevated to restore ICS).
+Look at **`last collect`** — it should be **< 20 min ago**. If it's hours/days old, the cron stalled or the Jetson lost internet (re-run `$env:TEMP\jetics.ps1` elevated to restore ICS).
 
 ### Step D — SSH from VS Code is failing
 Open the **"AI Signal" output channel** (View → Output → pick "AI Signal"). It logs the exact `ssh` line and any error.
@@ -82,7 +82,7 @@ Open the **"AI Signal" output channel** (View → Output → pick "AI Signal"). 
 ### 🚑 Emergency unstick (no restart available)
 Force-refresh the cached file the extension reads, straight from the Jetson:
 ```powershell
-$out = ssh kershy@192.168.55.1 "cd /home/kershy/ai-signal && /home/kershy/miniforge3/bin/python -m engine.cli top --json --n 20 --since 72h" 2>$null | Out-String
+$out = ssh jetson@192.168.55.1 "cd /home/jetson/ai-signal && /home/jetson/miniforge3/bin/python -m engine.cli top --json --n 20 --since 72h" 2>$null | Out-String
 $md  = ($out | ConvertFrom-Json).digest_markdown
 [System.IO.File]::WriteAllText("$env:TEMP\ai-signal-latest.md", $md, (New-Object System.Text.UTF8Encoding($false)))
 ```
@@ -97,7 +97,7 @@ Then **AI Signal: Open last digest**. (This is a band-aid — Step A is the real
 1. **Edit** the engine in the desktop repo (`engine\…`).
 2. **Test** (always on the desktop `.venv`, never the Jetson):
    ```powershell
-   cd "C:\Users\PC\Desktop\Sandbox Testing\ai news spider"
+   cd "<path-to-repo>"
    .venv\Scripts\python.exe -m pytest
    ```
 3. **Commit** locally (trunk-based, straight to `master`).
@@ -116,11 +116,11 @@ Then **AI Signal: Open last digest**. (This is a band-aid — Step A is the real
 
 ## 5. Cheat sheet
 
-Run from the desktop, project root = `C:\Users\PC\Desktop\Sandbox Testing\ai news spider`.
+Run from the desktop, project root = `<path-to-repo>`.
 
 ```powershell
 # --- look ---
-ssh kershy@192.168.55.1 "cd /home/kershy/ai-signal && /home/kershy/miniforge3/bin/python -m engine.cli status"   # corpus health
+ssh jetson@192.168.55.1 "cd /home/jetson/ai-signal && /home/jetson/miniforge3/bin/python -m engine.cli status"   # corpus health
 .venv\Scripts\python.exe -m pytest                          # run the test suite
 
 # --- ship ---
@@ -133,9 +133,9 @@ git log --oneline -5                                        # recent history
 
 | Thing | Where |
 |---|---|
-| Project repo (desktop) | `C:\Users\PC\Desktop\Sandbox Testing\ai news spider` |
-| Jetson engine (file copy) | `kershy@192.168.55.1:/home/kershy/ai-signal` |
-| Jetson python | `/home/kershy/miniforge3/bin/python` |
+| Project repo (desktop) | `<path-to-repo>` |
+| Jetson engine (file copy) | `jetson@192.168.55.1:/home/jetson/ai-signal` |
+| Jetson python | `/home/jetson/miniforge3/bin/python` |
 | The file VS Code opens | `%TEMP%\ai-signal-latest.md` |
 | Extension settings | `%APPDATA%\Code\User\settings.json` (keys: `aiSignal.*`) |
 | Tune the engine | `config.toml` (sources, weights, `summary_top_n`, etc.) |
@@ -150,7 +150,7 @@ git log --oneline -5                                        # recent history
 - 🕒 **Timestamps are Eastern now.** Header shows **EDT** in summer, **EST** in winter (correct on the Jetson, which has full tz data).
 - ⚡ **`top` only writes readable summaries for the top 8 items** (`ranking.summary_top_n`), each capped at a 20s call. Lower items still rank and render — they just use the short fallback line.
 - 👽 **Reddit is IP-throttled (429).** Only ~2–4 of 22 subreddits land per cycle; coverage rotates across runs. Expected, not a bug.
-- 🌐 **Jetson internet = desktop ICS.** If it drops, re-run `C:\Users\PC\AppData\Local\Temp\jetics.ps1` elevated.
+- 🌐 **Jetson internet = desktop ICS.** If it drops, re-run `$env:TEMP\jetics.ps1` elevated.
 
 ---
 

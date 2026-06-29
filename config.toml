@@ -12,7 +12,9 @@ digest_size = 25
 digest_path = "digests"
 
 [ollama]
-host = "http://192.168.55.100:11434"
+# localhost by default (works for a desktop run). The Jetson deploy rewrites this to
+# your desktop's LAN address via the OLLAMA_LAN_HOST env var (see scripts/deploy.ps1).
+host = "http://localhost:11434"
 chat_model = "llama3.1:8b"        # relevance + earliness judging
 embed_model = "nomic-embed-text"  # novelty / dedup
 # Skip the LLM scoring step (faster, less precise) by setting to false.
