@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Signal — Pipeline Optimization Plan</title>
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--card2:#1f232c;--ink:#e6e9ef;--mut:#9aa4b2;--line:#2a2f3a;
+        --good:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#60a5fa;--rec:#22c55e;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;padding:24px}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px}
+  h3{font-size:16px;margin:0} .sub{color:var(--mut);margin:0 0 18px}
+  table{border-collapse:collapse;width:100%;margin:8px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+  th{background:var(--card2);color:var(--mut);font-weight:600}
+  .metric{font-variant-numeric:tabular-nums}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin:12px 0}
+  .phase{display:flex;gap:12px;align-items:flex-start}
+  .phase input[type=checkbox]{width:20px;height:20px;margin-top:3px;cursor:pointer;flex:0 0 auto}
+  .phase .body{flex:1}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:6px 0}
+  .tag{font-size:12px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
+  .tag.good{color:var(--good);border-color:#205c39} .tag.warn{color:var(--warn);border-color:#5c4a13}
+  .tag.bad{color:var(--bad);border-color:#5c2020} .tag.rec{color:#0b1411;background:var(--rec);border-color:var(--rec);font-weight:700}
+  .imp{color:var(--good);font-weight:600} .files{color:var(--mut);font-size:13px;font-family:ui-monospace,Consolas,monospace}
+  ul{margin:6px 0;padding-left:20px} li{margin:3px 0}
+  .opt{display:block;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:6px 0;cursor:pointer}
+  .opt:hover{border-color:var(--acc)} .opt input{margin-right:8px}
+  .opt.sel{border-color:var(--rec);box-shadow:0 0 0 1px var(--rec) inset}
+  textarea{width:100%;min-height:230px;background:#0b0d11;color:var(--ink);border:1px solid var(--line);
+           border-radius:8px;padding:12px;font:13px/1.5 ui-monospace,Consolas,monospace;resize:vertical}
+  button{background:var(--acc);color:#06101f;border:0;border-radius:8px;padding:9px 16px;font-weight:700;cursor:pointer;margin-top:8px}
+  .note{color:var(--mut);font-size:13px} code{background:#0b0d11;padding:1px 5px;border-radius:4px;font-size:13px}
+  .escalate{border-left:3px solid var(--warn);padding-left:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Signal — Pipeline Optimization Plan</h1>
+  <p class="sub">Functionality + measurable performance across <b>collect → enrich → store → rank → digest</b>.
+     Pick the phases to greenlight and answer the decisions; a copy-paste summary builds at the bottom.</p>
+
+  <h2>Goal</h2>
+  <p>Move real numbers on the working pipeline — faster collect cycles, a higher enrichment ceiling (more
+     net-new processed per 20-min window), faster <code>top</code>, and broader source coverage — without
+     changing behavior the user sees (ranking semantics, digest output) and keeping the graceful-degradation
+     and local-first conventions.</p>
+
+  <h2>Baseline (today — to be re-measured in Phase 0)</h2>
+  <table>
+    <tr><th>Metric</th><th>Current</th><th>Source</th></tr>
+    <tr><td>Corpus size</td><td class="metric">2,889 items · 111,160 snapshots</td><td>last <code>status</code></td></tr>
+    <tr><td>Collect cycle wall-time</td><td class="metric">~6 min for 143 net-new</td><td>memory note (post source-breadth)</td></tr>
+    <tr><td>Enrichment ceiling</td><td class="metric">~219 items/cycle (serial embed+judge)</td><td>memory note</td></tr>
+    <tr><td>Re-poll waste</td><td class="metric">~99.5% already-seen per fetch</td><td>diagnosed</td></tr>
+    <tr><td>Reddit coverage</td><td class="metric">2–4 of 22 subs land/cycle (429)</td><td>code + memory</td></tr>
+    <tr><td><code>top</code> warm latency</td><td class="metric">loads ALL enriched rows + parses every 15KB embedding JSON</td><td>store.py audit</td></tr>
+    <tr><td>DB indexes</td><td class="metric">none beyond PKs</td><td>store.py audit</td></tr>
+  </table>
+  <p class="note">⚠ Several baselines are estimates from notes/code. <b>Phase 0 turns them into measured numbers</b> so every later change has a real before/after.</p>
+
+  <h2>Phases — check the ones to greenlight</h2>
+
+  <div class="card phase">
+    <input type="checkbox" id="p0" class="ph" checked data-name="Phase 0 — Instrument & baseline">
+    <div class="body">
+      <div class="row"><h3>Phase 0 — Instrument &amp; baseline</h3><span class="tag rec">DO FIRST</span><span class="tag good">low risk</span></div>
+      <p>Add per-stage timing to <code>collect()</code> (fetch/filter/upsert/enrich/prune) and <code>rank()</code>
+         (load/velocity/score), surfaced in the returned stats. Add a <code>bench</code> path (script or CLI) that
+         times cold + warm <code>top</code> and a dry collect, prints a metrics table, and records DB size.</p>
+      <div class="row"><span class="imp">Impact: none on behavior — gives the numbers to prove everything below.</span></div>
+      <div class="files">engine/pipeline.py · engine/cli.py · scripts/bench.py (new)</div>
+    </div>
+  </div>
+
+  <div class="card phase">
+    <input type="checkbox" id="p1" class="ph" checked data-name="Phase 1 — Storage & query wins">
+    <div class="body">
+      <div class="row"><h3>Phase 1 — Storage &amp; query wins</h3><span class="tag rec">recommended</span><span class="tag good">low risk · high value</span></div>
+      <ul>
+        <li><b>Indexes</b> on <code>items(enriched)</code>, <code>items(first_seen)</code>, <code>items(last_seen)</code>, <code>items(source)</code> (guarded <code>CREATE INDEX IF NOT EXISTS</code>).</li>
+        <li><b>Kill the N+1</b>: <code>rank()</code> calls <code>engagement_series()</code> once per item. Velocity only needs the first &amp; last snapshot → one <code>GROUP BY</code> query for all ids.</li>
+        <li><b>Trim <code>get_corpus</code></b>: push the <code>since</code> window into SQL; skip parsing embeddings unless query-mode needs them (saves parsing ~2,889 × ~15KB JSON every <code>top</code>).</li>
+        <li><b>Batch commits</b>: <code>upsert_item</code> commits per item → one transaction per collect phase.</li>
+      </ul>
+      <div class="row"><span class="imp">Expected: warm <code>top</code> latency ↓ large (esp. embedding-skip), collect upsert time ↓, prune/get_corpus ↓.</span></div>
+      <div class="files">engine/store.py · engine/pipeline.py</div>
+    </div>
+  </div>
+
+  <div class="card phase">
+    <input type="checkbox" id="p2" class="ph" data-name="Phase 2 — Enrichment throughput">
+    <div class="body">
+      <div class="row"><h3>Phase 2 — Enrichment throughput (raise the ceiling)</h3><span class="tag warn">medium risk</span></div>
+      <ul>
+        <li><b>Vectorize novelty</b> with numpy: load prior embeddings once as an (N×768) array; cosine via one matmul instead of pure-Python loops over up to 4,000 vectors per new item. <i>Needs numpy on the Jetson — see decisions.</i></li>
+        <li><b>Parallelize the LLM calls</b>: embed + judge are network-bound; run them concurrently (thread pool) against the desktop Ollama. <b>DB writes stay single-threaded</b> (SQLite). Lifts the ~219/cycle ceiling.</li>
+        <li><b>Binary embeddings</b> (optional): store float32 bytes instead of JSON TEXT — smaller, faster load. <i>Data-model migration — see decisions.</i></li>
+      </ul>
+      <div class="row"><span class="imp">Expected: enrich wall-time ↓ (numpy + concurrency), ceiling ↑ ~2–4× → more net-new per cycle.</span></div>
+      <div class="files">engine/pipeline.py · engine/ollama_client.py · engine/store.py</div>
+    </div>
+  </div>
+
+  <div class="card phase">
+    <input type="checkbox" id="p3" class="ph" data-name="Phase 3 — Source coverage">
+    <div class="body">
+      <div class="row"><h3>Phase 3 — Source coverage (more net-new)</h3><span class="tag warn">needs your setup</span></div>
+      <ul>
+        <li><b>Reddit OAuth/PRAW</b>: authenticated requests dodge the IP-wide 429, lifting reddit from 2–4 → up to 22 subs/cycle. <b>Requires you to register a Reddit app</b> (client id/secret).</li>
+        <li><b>Conditional GET / ETag</b> on feeds (minor): cut re-poll bandwidth, faster fetch.</li>
+      </ul>
+      <div class="row"><span class="imp">Expected: reddit net-new/cycle ↑ several-fold; total corpus growth ↑.</span></div>
+      <div class="files">engine/sources/reddit.py · config.toml · secret via env var</div>
+    </div>
+  </div>
+
+  <h2>Decisions needed from you</h2>
+  <div class="escalate">
+    <p><b>D1 — Phase 2 numpy dependency?</b> Vectorized novelty needs numpy (absent from the test venv; must verify on the Jetson aarch64).</p>
+    <label class="opt"><input type="radio" name="d1" value="numpy-add" checked> Add numpy as an engine dependency (with pure-Python fallback if missing) — <b>recommended</b></label>
+    <label class="opt"><input type="radio" name="d1" value="numpy-skip"> Skip vectorization; keep pure-Python cosine</label>
+
+    <p><b>D2 — Binary embedding migration (Phase 2)?</b> Changes how embeddings are stored (dual-read old JSON during transition).</p>
+    <label class="opt"><input type="radio" name="d2" value="bin-yes"> Yes — migrate to float32 blobs</label>
+    <label class="opt"><input type="radio" name="d2" value="bin-no" checked> No — keep JSON for now (defer) — <b>recommended</b></label>
+
+    <p><b>D3 — Reddit OAuth (Phase 3)?</b> Lifts the biggest coverage cap but needs a registered app + secret.</p>
+    <label class="opt"><input type="radio" name="d3" value="oauth-now"> I'll register a Reddit app — do it</label>
+    <label class="opt"><input type="radio" name="d3" value="oauth-later" checked> Defer until I provide credentials — <b>recommended</b></label>
+
+    <p><b>D4 — Parallel enrichment concurrency (Phase 2)?</b> Concurrent Ollama requests on the 5070.</p>
+    <label class="opt"><input type="radio" name="d4" value="c4" checked> 4 concurrent — safe default — <b>recommended</b></label>
+    <label class="opt"><input type="radio" name="d4" value="c8"> 8 concurrent — more throughput, more GPU contention</label>
+  </div>
+
+  <h2>Constraints &amp; validation</h2>
+  <ul>
+    <li><b>No behavior change</b> to ranking semantics or digest output; numpy/Ollama-absent paths still degrade gracefully.</li>
+    <li><b>Guarded migrations</b> (<code>CREATE INDEX IF NOT EXISTS</code>, dual-read) so existing <code>state.db</code> upgrades in place.</li>
+    <li><b>Tested on the desktop <code>.venv</code></b> (suite is 60 green); every change adds a regression test; novelty numpy-vs-python parity test.</li>
+    <li><b>Deploy</b> via <code>deploy.ps1</code> (Jetson is a file copy); validate with a real collect cycle + the Phase 0 bench before/after.</li>
+  </ul>
+
+  <h2>Risks / unknowns</h2>
+  <ul>
+    <li>numpy availability/perf on the Jetson (old aarch64). Phase 0 verifies before Phase 2 commits to it.</li>
+    <li>Ollama concurrency vs. other GPU workloads on the desktop — start at 4, measure.</li>
+    <li>SQLite single-writer: parallelize only the network calls, keep DB writes serial.</li>
+  </ul>
+
+  <h2>Your selection (copy this back to me)</h2>
+  <textarea id="out" readonly></textarea>
+  <button onclick="copyOut()">Copy to clipboard</button>
+  <p class="note">Edit checkboxes/radios above; this updates live. My recommendation: <b>greenlight Phase 0 + Phase 1 now</b> (low-risk, biggest immediate wins with hard numbers), then decide Phase 2 once Phase 0 confirms the bottlenecks and numpy on the Jetson.</p>
+</div>
+
+<script>
+  function gather(){
+    const phases=[...document.querySelectorAll('.ph')].filter(c=>c.checked).map(c=>c.dataset.name);
+    const d=n=>{const el=document.querySelector(`input[name=${n}]:checked`);return el?el.value:'—';};
+    const map={'numpy-add':'Add numpy (+fallback)','numpy-skip':'Skip vectorization',
+      'bin-yes':'Migrate to binary embeddings','bin-no':'Keep JSON embeddings',
+      'oauth-now':'Register Reddit app + do OAuth','oauth-later':'Defer Reddit OAuth',
+      'c4':'4 concurrent','c8':'8 concurrent'};
+    let s='AI SIGNAL — OPTIMIZATION PLAN: MY CHOICES\n========================================\n\nGreenlit phases:\n';
+    s+= phases.length? phases.map(p=>'  - '+p).join('\n') : '  (none selected)';
+    s+='\n\nDecisions:\n';
+    s+='  D1 numpy:        '+map[d('d1')]+'\n';
+    s+='  D2 embeddings:   '+map[d('d2')]+'\n';
+    s+='  D3 reddit OAuth: '+map[d('d3')]+'\n';
+    s+='  D4 concurrency:  '+map[d('d4')]+'\n';
+    s+='\nNotes: ';
+    document.getElementById('out').value=s;
+  }
+  function copyOut(){const t=document.getElementById('out');t.select();document.execCommand('copy');}
+  document.querySelectorAll('input').forEach(i=>i.addEventListener('change',()=>{
+    document.querySelectorAll('.opt').forEach(o=>o.classList.toggle('sel',o.querySelector('input').checked));
+    gather();
+  }));
+  document.querySelectorAll('.opt').forEach(o=>o.classList.toggle('sel',o.querySelector('input').checked));
+  gather();
+</script>
+</body>
+</html>
