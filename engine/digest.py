@@ -137,6 +137,13 @@ def _h(text: str) -> str:
     )
 
 
+def _safe_href(url: str) -> str:
+    """Allow only http(s) in the shareable HTML; anything else (javascript:, data:) ->
+    '#', so the exported artifact can't carry an active non-web link."""
+    u = (url or "").strip()
+    return _h(u) if u.lower().startswith(("http://", "https://")) else "#"
+
+
 _HTML_STYLE = (
     ":root{color-scheme:light dark}"
     "body{font:16px/1.6 -apple-system,Segoe UI,Roboto,sans-serif;max-width:820px;"
@@ -177,7 +184,7 @@ def render_html(items: list[Item], subtitle: str = "") -> str:
         gist = _takeaway(it)
         tail = f" — {_h(gist)}" if gist else ""
         out.append(
-            f'<li>{emoji} <a href="{_h(it.url)}">{_h(it.title)}</a> '
+            f'<li>{emoji} <a href="{_safe_href(it.url)}">{_h(it.title)}</a> '
             f'<span class="score">{it.score:.2f}</span>{tail}</li>'
         )
     out.append("</ol>")
@@ -185,7 +192,7 @@ def render_html(items: list[Item], subtitle: str = "") -> str:
     for i, it in enumerate(items, 1):
         emoji = _EMOJI.get(it.source, "•")
         out.append('<div class="card">')
-        out.append(f'<h2>{i}. {emoji} <a href="{_h(it.url)}">{_h(it.title)}</a></h2>')
+        out.append(f'<h2>{i}. {emoji} <a href="{_safe_href(it.url)}">{_h(it.title)}</a></h2>')
         meta = [f"<strong>{it.score:.2f}</strong>", _h(it.source)]
         if it.relevance or it.earliness:
             meta.append(f"rel {it.relevance:.0f} · early {it.earliness:.0f}")
@@ -202,7 +209,7 @@ def render_html(items: list[Item], subtitle: str = "") -> str:
         excerpt = _excerpt(it.summary)
         if excerpt and excerpt != summary:
             out.append(f"<blockquote>{_h(excerpt)}</blockquote>")
-        byline = f'🔗 <a href="{_h(it.url)}">{_h(it.source)}</a>'
+        byline = f'🔗 <a href="{_safe_href(it.url)}">{_h(it.source)}</a>'
         if it.author:
             byline += f" · {_h(it.author)}"
         out.append(f'<div class="meta">{byline}</div>')

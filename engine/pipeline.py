@@ -210,7 +210,7 @@ def rank(
         "earliness": float(cfg.get("ranking", "weight_earliness", default=0.15)),
         "query": float(cfg.get("ranking", "weight_query", default=0.30)),
     }
-    weights = normalize_weights(weights)  # base components sum to 1.0; query stays additive
+    weights = normalize_weights(weights)  # base sums to 1.0 via a uniform rescale (order preserved)
     halflife = float(cfg.get("ranking", "halflife_hours", default=18))
     mainstream = set(cfg.get("suppression", "mainstream_domains", default=[]))
     penalty = float(cfg.get("suppression", "penalty", default=0.5))

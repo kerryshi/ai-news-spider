@@ -14,13 +14,20 @@ _BASE_KEYS = ("velocity", "novelty", "relevance", "earliness")
 
 
 def normalize_weights(weights: dict) -> dict:
-    """Return a copy with the four base components scaled to sum to 1.0 (keeping their
-    proportions); the optional additive 'query' bump is left as-is. A zero/empty base
-    falls back to equal weights so ranking never divides by zero or silently sums <1."""
+    """Return a copy scaled so the four base components sum to 1.0.
+
+    ALL weights — including the additive 'query' bump — are scaled by the same factor,
+    so this is a pure uniform rescale: ranking ORDER is unchanged (query-mode included),
+    it just puts the base on a clean 0..1 footing. A zero/empty base falls back to equal
+    base weights so ranking never divides by zero or silently sums to <1."""
     total = sum(float(weights.get(k, 0.0)) for k in _BASE_KEYS)
     out = dict(weights)
-    for k in _BASE_KEYS:
-        out[k] = (float(weights.get(k, 0.0)) / total) if total > 0 else 1.0 / len(_BASE_KEYS)
+    if total > 0:
+        for k in out:
+            out[k] = float(out[k]) / total
+    else:
+        for k in _BASE_KEYS:
+            out[k] = 1.0 / len(_BASE_KEYS)
     return out
 
 

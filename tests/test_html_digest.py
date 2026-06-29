@@ -33,6 +33,13 @@ def test_render_html_escapes_markup_in_titles():
     assert "&lt;script&gt;" in html
 
 
+def test_render_html_drops_non_http_url_schemes():
+    it = _item(title="x", url="javascript:alert(1)", score=0.5)
+    html = render_html([it])
+    assert "javascript:" not in html   # active non-web link is dropped
+    assert 'href="#"' in html
+
+
 def test_render_html_empty_is_valid():
     html = render_html([])
     assert html.startswith("<!doctype html>")

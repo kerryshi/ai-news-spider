@@ -74,13 +74,14 @@ def test_age_decays_score():
     assert abs(old - fresh * 0.5) < 1e-9
 
 
-def test_normalize_weights_base_sums_to_one():
-    w = normalize_weights(
-        {"velocity": 0.30, "novelty": 0.20, "relevance": 0.25, "earliness": 0.15, "query": 0.30}
-    )
+def test_normalize_weights_is_a_uniform_rescale_to_base_sum_one():
+    raw = {"velocity": 0.30, "novelty": 0.20, "relevance": 0.25, "earliness": 0.15, "query": 0.30}
+    w = normalize_weights(raw)
     assert abs(sum(w[k] for k in ("velocity", "novelty", "relevance", "earliness")) - 1.0) < 1e-9
-    assert w["query"] == 0.30  # additive bump left untouched
-    assert abs(w["velocity"] - 0.30 / 0.90) < 1e-9  # proportions preserved
+    # every weight (query included) scaled by the same 1/0.90 -> ratios preserved, so
+    # ranking order is unchanged.
+    for k in raw:
+        assert abs(w[k] - raw[k] / 0.90) < 1e-9
 
 
 def test_normalize_weights_zero_base_falls_back_to_equal():
