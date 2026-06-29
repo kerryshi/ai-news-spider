@@ -11,6 +11,23 @@ import math
 from datetime import datetime, timezone
 
 
+def velocity_from_endpoints(
+    n: int, first_val: float, last_val: float, span_hours: float, age_hours: float
+) -> float:
+    """Engagement gained per hour, from just the first & last snapshot of a series.
+
+    Identical math to velocity() but driven by precomputed endpoints, so ranking can
+    resolve all items in ONE batched query instead of one query per item (the N+1).
+    """
+    if n >= 2:
+        if span_hours > 0.05:
+            return max(last_val - first_val, 0.0) / span_hours
+        return 0.0
+    if n == 1:
+        return last_val / max(age_hours, 0.01)
+    return 0.0
+
+
 def velocity(series: list[tuple[datetime, float]], age_hours: float) -> float:
     """Engagement gained per hour.
 
@@ -20,12 +37,10 @@ def velocity(series: list[tuple[datetime, float]], age_hours: float) -> float:
     if len(series) >= 2:
         (t0, v0), (t1, v1) = series[0], series[-1]
         span_h = (t1 - t0).total_seconds() / 3600.0
-        if span_h > 0.05:
-            return max(v1 - v0, 0.0) / span_h
-        return 0.0
+        return velocity_from_endpoints(len(series), v0, v1, span_h, age_hours)
     if series:
-        return series[-1][1] / max(age_hours, 0.01)
-    return 0.0
+        return velocity_from_endpoints(1, series[-1][1], series[-1][1], 0.0, age_hours)
+    return velocity_from_endpoints(0, 0.0, 0.0, 0.0, age_hours)
 
 
 def freshness(age_hours: float, halflife_hours: float) -> float:

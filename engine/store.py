@@ -72,6 +72,17 @@ class Store:
         for col, decl in _EXTRA_COLUMNS.items():
             if col not in existing:
                 self.conn.execute(f"ALTER TABLE items ADD COLUMN {col} {decl}")
+        # Indexes for the hot queries (created after the ALTERs so `enriched` exists):
+        # get_corpus filters enriched+first_seen; enriched_embeddings sorts by last_seen;
+        # prune scans last_seen; health groups by source. Guarded, so existing DBs migrate.
+        self.conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_items_enriched_first ON items(enriched, first_seen);
+            CREATE INDEX IF NOT EXISTS idx_items_enriched_last  ON items(enriched, last_seen);
+            CREATE INDEX IF NOT EXISTS idx_items_last_seen      ON items(last_seen);
+            CREATE INDEX IF NOT EXISTS idx_items_source         ON items(source);
+            """
+        )
         self.conn.commit()
 
     # ---- collection ---------------------------------------------------------
@@ -94,6 +105,11 @@ class Store:
             "INSERT OR REPLACE INTO engagement (id, ts, value) VALUES (?, ?, ?)",
             (item.id, now, item.engagement),
         )
+        # No commit here — collect() batches a whole fetch into one commit (hundreds of
+        # per-item fsyncs on the Jetson's flash storage were a real cost). Same-connection
+        # reads still see these writes before the commit.
+
+    def commit(self) -> None:
         self.conn.commit()
 
     def needs_enrichment(self) -> list[sqlite3.Row]:
@@ -148,42 +164,78 @@ class Store:
         ).fetchall()
         return [(_parse(r["ts"]), r["value"]) for r in rows if _parse(r["ts"])]
 
-    def get_corpus(self, since_hours: float | None = None) -> list[Item]:
-        """Rebuild enriched Items for ranking, newest engagement attached."""
-        rows = self.conn.execute(
-            "SELECT * FROM items WHERE enriched = 1"
-        ).fetchall()
-        cutoff = None
+    def engagement_endpoints(
+        self, ids: list[str]
+    ) -> dict[str, tuple[int, datetime | None, float, datetime | None, float]]:
+        """First & last engagement snapshot for many ids in ONE query — replaces the
+        per-item engagement_series() N+1 in ranking. Velocity only needs the endpoints,
+        not the full series. Returns id -> (n, first_ts, first_val, last_ts, last_val)."""
+        out: dict[str, tuple[int, datetime | None, float, datetime | None, float]] = {}
+        CHUNK = 500  # stay well under SQLite's 999 bound-variable limit
+        for i in range(0, len(ids), CHUNK):
+            chunk = ids[i:i + CHUNK]
+            q = ",".join("?" * len(chunk))
+            rows = self.conn.execute(
+                f"""SELECT g.id AS id, g.n AS n, g.first_ts AS first_ts, g.last_ts AS last_ts,
+                           ef.value AS first_val, el.value AS last_val
+                    FROM (SELECT id, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts
+                          FROM engagement WHERE id IN ({q}) GROUP BY id) g
+                    JOIN engagement ef ON ef.id = g.id AND ef.ts = g.first_ts
+                    JOIN engagement el ON el.id = g.id AND el.ts = g.last_ts""",
+                chunk,
+            ).fetchall()
+            for r in rows:
+                out[r["id"]] = (
+                    r["n"], _parse(r["first_ts"]), r["first_val"],
+                    _parse(r["last_ts"]), r["last_val"],
+                )
+        return out
+
+    def get_corpus(
+        self, since_hours: float | None = None, with_embeddings: bool = False
+    ) -> list[Item]:
+        """Rebuild enriched Items for ranking, newest engagement attached.
+
+        The `since` window is applied in SQL (judged by first_seen — when WE first saw
+        the item — so freshly-discovered older papers aren't excluded). Embeddings are
+        only SELECTed + parsed when `with_embeddings` is set (query mode); a plain `top`
+        skips parsing thousands of ~15KB JSON blobs it never uses.
+        """
+        cols = ("id, source, title, url, summary, author, created_at, raw_domain, "
+                "first_seen, relevance, earliness, novelty, reason, tags, llm_summary")
+        if with_embeddings:
+            cols += ", embedding"
+        sql = f"SELECT {cols} FROM items WHERE enriched = 1"
+        params: list = []
         if since_hours:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=since_hours)
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).isoformat()
+            sql += " AND (first_seen IS NULL OR first_seen >= ?)"
+            params.append(cutoff)
+        rows = self.conn.execute(sql, params).fetchall()
 
         items: list[Item] = []
         for r in rows:
-            created = _parse(r["created_at"])
-            first_seen = _parse(r["first_seen"])
-            # "since" is judged by when we first saw the item, not its publish date,
-            # so freshly-discovered arXiv/GitHub/HF items aren't excluded for being
-            # published a few days ago.
-            if cutoff and first_seen and first_seen < cutoff:
-                continue
             it = Item(
                 source=r["source"], title=r["title"] or "", url=r["url"] or "",
                 summary=r["summary"] or "", author=r["author"] or "",
-                created_at=created, raw_domain=r["raw_domain"] or "",
+                created_at=_parse(r["created_at"]), raw_domain=r["raw_domain"] or "",
             )
-            it._first_seen = first_seen  # type: ignore[attr-defined]
+            it._first_seen = _parse(r["first_seen"])  # type: ignore[attr-defined]
             it.relevance = r["relevance"] or 0.0
             it.earliness = r["earliness"] or 0.0
             it.novelty = r["novelty"] if r["novelty"] is not None else 1.0
             it.reason = r["reason"] or ""
-            it.llm_summary = (r["llm_summary"] if "llm_summary" in r.keys() else "") or ""
+            it.llm_summary = r["llm_summary"] or ""
             try:
                 it.tags = json.loads(r["tags"]) if r["tags"] else []
             except Exception:
                 it.tags = []
-            try:
-                it._embedding = json.loads(r["embedding"]) if r["embedding"] else None  # type: ignore[attr-defined]
-            except Exception:
+            if with_embeddings:
+                try:
+                    it._embedding = json.loads(r["embedding"]) if r["embedding"] else None  # type: ignore[attr-defined]
+                except Exception:
+                    it._embedding = None  # type: ignore[attr-defined]
+            else:
                 it._embedding = None  # type: ignore[attr-defined]
             items.append(it)
         return items

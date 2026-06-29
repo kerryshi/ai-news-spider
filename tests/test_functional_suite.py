@@ -441,5 +441,82 @@ class TestRedditBackoff(unittest.TestCase):
             R.get, R.time.sleep = orig_get, orig_sleep
 
 
+# ──────── Phase 1 perf: indexes, batched commit, N+1 fix, embedding-skip ───
+class TestPhase1Optimizations(unittest.TestCase):
+    """2026-06-28 pipeline optimizations — each must preserve behavior exactly."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.store = Store(self.dir / "t.db")
+
+    def tearDown(self):
+        self.store.close()
+
+    def test_hot_path_indexes_exist(self):
+        idx = {r["name"] for r in self.store.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+        for want in ("idx_items_enriched_first", "idx_items_enriched_last",
+                     "idx_items_last_seen", "idx_items_source"):
+            self.assertIn(want, idx)
+
+    def test_velocity_endpoints_parity(self):
+        from engine.ranking import velocity, velocity_from_endpoints
+        t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        t1 = t0 + timedelta(hours=2)
+        self.assertAlmostEqual(velocity([(t0, 10.0), (t1, 30.0)], 5),       # slope 20/2h
+                               velocity_from_endpoints(2, 10.0, 30.0, 2.0, 5))
+        self.assertAlmostEqual(velocity([(t0, 20.0)], 4.0),                 # single: val/age
+                               velocity_from_endpoints(1, 20.0, 20.0, 0.0, 4.0))
+        self.assertEqual(velocity_from_endpoints(0, 0.0, 0.0, 0.0, 4.0), 0.0)
+
+    def test_engagement_endpoints_one_query_matches_series(self):
+        from engine.ranking import velocity, velocity_from_endpoints
+        it = _item(url="http://x/ep")
+        self.store.upsert_item(it); self.store.commit()
+        self.store.conn.execute("DELETE FROM engagement WHERE id=?", (it.id,))
+        self.store.conn.executemany(
+            "INSERT INTO engagement(id, ts, value) VALUES (?,?,?)",
+            [(it.id, "2026-01-01T00:00:00+00:00", 10.0),
+             (it.id, "2026-01-01T02:00:00+00:00", 30.0)])
+        self.store.conn.commit()
+        ep = self.store.engagement_endpoints([it.id])
+        n, ft, fv, lt, lv = ep[it.id]
+        self.assertEqual((n, fv, lv), (2, 10.0, 30.0))
+        series = self.store.engagement_series(it.id)
+        span = (lt - ft).total_seconds() / 3600.0
+        self.assertAlmostEqual(velocity(series, it.age_hours),
+                               velocity_from_endpoints(n, fv, lv, span, it.age_hours))
+
+    def test_engagement_endpoints_empty(self):
+        self.assertEqual(self.store.engagement_endpoints([]), {})
+
+    def test_get_corpus_since_filter_in_sql(self):
+        recent = _item(url="http://x/recent"); self.store.upsert_item(recent)
+        old = _item(url="http://x/old"); self.store.upsert_item(old)
+        self.store.commit()
+        self.store.save_enrichment(recent.id, [0.1], 5, 5, "r", [], 1.0)
+        self.store.save_enrichment(old.id, [0.2], 5, 5, "r", [], 1.0)
+        stale = (datetime.now(timezone.utc) - timedelta(hours=200)).isoformat()
+        self.store.conn.execute("UPDATE items SET first_seen=? WHERE id=?", (stale, old.id))
+        self.store.conn.commit()
+        got = {it.url for it in self.store.get_corpus(since_hours=72)}
+        self.assertIn("http://x/recent", got)
+        self.assertNotIn("http://x/old", got)        # excluded by SQL, not Python
+
+    def test_get_corpus_embedding_skip(self):
+        it = _item(url="http://x/emb"); self.store.upsert_item(it); self.store.commit()
+        self.store.save_enrichment(it.id, [0.5, 0.5], 5, 5, "r", [], 1.0)
+        self.assertIsNone(self.store.get_corpus(with_embeddings=False)[0]._embedding)
+        self.assertEqual(self.store.get_corpus(with_embeddings=True)[0]._embedding, [0.5, 0.5])
+
+    def test_upsert_batches_commit(self):
+        it = _item(url="http://x/batch"); self.store.upsert_item(it)
+        self.assertEqual(self.store.stats()["items"], 1)    # visible same-connection
+        self.store.commit()
+        other = Store(self.dir / "t.db")
+        self.assertEqual(other.stats()["items"], 1)         # durable for a new connection
+        other.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

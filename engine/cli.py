@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from datetime import datetime, timezone
@@ -101,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
             mins = (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60
             return f"{mins:.0f} min ago" if mins < 120 else f"{mins/60:.1f} h ago"
 
+        size_mb = os.path.getsize(cfg.db_path) / 1e6 if os.path.exists(cfg.db_path) else 0.0
         print(f"corpus:       {h['items']} items ({h['enriched']} enriched), {h['snapshots']} snapshots")
+        print(f"db size:      {size_mb:.1f} MB")
         print(f"last collect: {_ago(h['last_collect'])}")
         print(f"newest item:  {_ago(h['newest_item'])}")
         print("by source:    " + ", ".join(f"{k} {v}" for k, v in sorted(h["by_source"].items())))

@@ -10,13 +10,14 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timezone
 from typing import Callable
 
 from .config import Config
 from .models import Item
 from .ollama_client import OllamaClient, cosine
-from .ranking import velocity as calc_velocity, composite
+from .ranking import velocity_from_endpoints, composite
 from .store import Store
 from .sources import REGISTRY
 
@@ -71,12 +72,14 @@ def _ollama(cfg: Config) -> OllamaClient:
 # ============================== COLLECT ====================================== #
 def collect(cfg: Config, progress: Progress | None = None) -> dict:
     log = progress or (lambda _m: None)
+    timings: dict[str, float] = {}
     store = Store(cfg.db_path)
     ollama = _ollama(cfg)
     if not ollama.available:
         log("⚠ Ollama unreachable — items will be stored unenriched.")
 
     # 1. fetch ----------------------------------------------------------------
+    t0 = time.perf_counter()
     raw: list[Item] = []
     for name, fetch in REGISTRY.items():
         if not cfg.source_enabled(name):
@@ -87,6 +90,7 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
             raw.extend(got)
         except Exception as e:
             log(f"  {name}: ERROR {e}")
+    timings["fetch_s"] = time.perf_counter() - t0
 
     # 2. freshness + keyword prefilter ----------------------------------------
     max_age = float(cfg.get("general", "max_age_hours", default=48))
@@ -98,14 +102,20 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
         blob = f"{it.title} {it.summary}".lower()
         return any(k in blob for k in keywords)
 
+    t0 = time.perf_counter()
     fresh = [it for it in raw if it.age_hours <= max_age and matches_kw(it)]
+    timings["filter_s"] = time.perf_counter() - t0
     log(f"  after freshness+keyword filter: {len(fresh)}")
 
-    # 3. upsert + snapshot engagement -----------------------------------------
+    # 3. upsert + snapshot engagement (one batched commit, not one per item) --
+    t0 = time.perf_counter()
     for it in fresh:
         store.upsert_item(it)
+    store.commit()
+    timings["upsert_s"] = time.perf_counter() - t0
 
     # 4. enrich NEW items only (embedding + LLM judge), once ------------------
+    t0 = time.perf_counter()
     pending = store.needs_enrichment()
     log(f"  enriching {len(pending)} new items…")
     sim_threshold = float(cfg.get("novelty", "similarity_threshold", default=0.86))
@@ -151,15 +161,21 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
         if vec:
             prior_vecs.append(vec)
         enriched += 1
+    timings["enrich_s"] = time.perf_counter() - t0
 
     # 5. prune ----------------------------------------------------------------
+    t0 = time.perf_counter()
     retention = int(cfg.get("collector", "retention_days", default=14))
     pruned = store.prune(retention)
+    timings["prune_s"] = time.perf_counter() - t0
     stats = store.stats()
     store.close()
     ollama.close()
-    log(f"✓ enriched {enriched} new · pruned {pruned} · corpus {stats['items']} items")
-    return {"enriched": enriched, "pruned": pruned, **stats}
+    timings["total_s"] = sum(timings.values())
+    log(f"✓ enriched {enriched} new · pruned {pruned} · corpus {stats['items']} items "
+        f"· {timings['total_s']:.1f}s (fetch {timings['fetch_s']:.1f} · "
+        f"upsert {timings['upsert_s']:.1f} · enrich {timings['enrich_s']:.1f})")
+    return {"enriched": enriched, "pruned": pruned, "timings": timings, **stats}
 
 
 # =============================== RANK ======================================== #
@@ -175,7 +191,11 @@ def rank(
     if n is None:
         n = int(cfg.get("ranking", "default_top_n", default=20))
 
-    items = store.get_corpus(since_hours)
+    timings: dict[str, float] = {}
+    t0 = time.perf_counter()
+    # embeddings are only needed for topic-query similarity; skip parsing them otherwise
+    items = store.get_corpus(since_hours, with_embeddings=query is not None)
+    timings["load_s"] = time.perf_counter() - t0
 
     query_vec = None
     if query:
@@ -194,11 +214,22 @@ def rank(
     mainstream = set(cfg.get("suppression", "mainstream_domains", default=[]))
     penalty = float(cfg.get("suppression", "penalty", default=0.5))
 
-    # live velocity from the engagement snapshots
+    # live velocity from engagement snapshots — ONE batched query, not one per item
+    t0 = time.perf_counter()
+    endpoints = store.engagement_endpoints([it.id for it in items])
     for it in items:
-        it.velocity = calc_velocity(store.engagement_series(it.id), it.age_hours)
+        ep = endpoints.get(it.id)
+        if ep:
+            n_snap, first_ts, first_val, last_ts, last_val = ep
+            span_h = ((last_ts - first_ts).total_seconds() / 3600.0
+                      if (first_ts and last_ts) else 0.0)
+            it.velocity = velocity_from_endpoints(n_snap, first_val, last_val, span_h, it.age_hours)
+        else:
+            it.velocity = 0.0
+    timings["velocity_s"] = time.perf_counter() - t0
     max_vel = max((it.velocity for it in items), default=1.0) or 1.0
 
+    t0 = time.perf_counter()
     now = datetime.now(timezone.utc)
     for it in items:
         # recency = hours since we first saw it (falls back to publish age)
@@ -215,9 +246,11 @@ def rank(
             ),
             4,
         )
+    timings["score_s"] = time.perf_counter() - t0
 
     items.sort(key=lambda x: x.score, reverse=True)
     store.close()
+    rank.last_timings = timings  # type: ignore[attr-defined]  # read by scripts/bench.py
     return items[:n]
 
 
