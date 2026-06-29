@@ -4,6 +4,28 @@ Local, Ollama-powered scraper that surfaces **emerging, not-yet-mainstream AI te
 news** from arXiv, Hacker News, Reddit, GitHub, and Hugging Face — ranked by
 velocity, novelty, relevance, and earliness. No paid APIs, no cloud LLM cost.
 
+> **See it without running anything:** [`docs/sample-digest.html`](docs/sample-digest.html)
+> is a real, self-contained digest — open it in any browser (no engine, Jetson, or network
+> needed). _(Becomes a live GitHub Pages link once published.)_
+
+**At a glance:** ~2,900-item corpus · 6 free sources · local-LLM enrichment (zero cloud cost) ·
+collects every 20 min on a Jetson Nano · embedding-based novelty dedup + velocity ranking ·
+a real VS Code extension · CI + one-command deploy.
+
+```mermaid
+flowchart LR
+  subgraph Jetson["Jetson Nano · cron */20"]
+    SC["scrape 6 sources"] --> DB[("SQLite corpus")]
+  end
+  subgraph Desktop["Desktop · RTX 5070"]
+    OL["Ollama<br/>embeddings + LLM judge"]
+    VS["VS Code extension"]
+  end
+  DB -- "enrich: novelty + relevance" --> OL
+  VS -- "ssh · engine.cli top" --> DB
+  VS --> DG["ranked digest"]
+```
+
 ## How it finds "not mainstream yet"
 
 1. **Early-signal sources** — arXiv + HN `new` + r/LocalLLaMA surface things before
