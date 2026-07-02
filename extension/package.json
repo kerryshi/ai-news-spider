@@ -2,7 +2,7 @@
   "name": "ai-signal-scraper",
   "displayName": "AI Signal Scraper",
   "description": "Surface emerging, not-yet-mainstream AI tech news from arXiv, HN, Reddit, GitHub & Hugging Face — ranked locally with Ollama.",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "publisher": "kerryshi",
   "engines": {
     "vscode": "^1.85.0"
@@ -32,6 +32,11 @@
       {
         "command": "aiSignal.openLatest",
         "title": "AI Signal: Open last digest"
+      },
+      {
+        "command": "aiSignal.openWebView",
+        "title": "AI Signal: Open web view",
+        "icon": "$(globe)"
       }
     ],
     "configuration": {
@@ -81,6 +86,11 @@
           "type": "number",
           "default": 20,
           "description": "Silently refresh the badge + digest every N minutes so an open preview stays live and a failed startup fetch self-heals (0 = off). Default matches the Jetson's 20-min collect cron."
+        },
+        "aiSignal.webPort": {
+          "type": "number",
+          "default": 8765,
+          "description": "Port of the local web view served by scripts/serve.py on this machine. 'Open web view' opens http://127.0.0.1:<port>."
         }
       }
     },
@@ -97,6 +107,9 @@
         },
         {
           "command": "aiSignal.openLatest"
+        },
+        {
+          "command": "aiSignal.openWebView"
         }
       ]
     },

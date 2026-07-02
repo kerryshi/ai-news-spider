@@ -26,6 +26,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("aiSignal.topByTopic", () => showTopByTopic()),
     vscode.commands.registerCommand("aiSignal.collectNow", () => collectNow()),
     vscode.commands.registerCommand("aiSignal.openLatest", () => openLatest()),
+    vscode.commands.registerCommand("aiSignal.openWebView", () => openWebView()),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("aiSignal.refreshMinutes")) applyRefresh();
     })
@@ -140,11 +141,17 @@ async function showTop(query?: string, openPreview = true) {
     if (result.digest_markdown) {
       writeDigest(file, result.digest_markdown);
     }
+    // Feed the local web view (scripts/serve.py): persist the full ranked result so
+    // the server renders fresh HTML on its next auto-refresh. Written on every
+    // Top / Collect now / timer refresh, so "Collect now" updates the open web page
+    // hands-free. Atomic write so the server never reads a half-written file.
+    writeDigest(path.join(os.tmpdir(), "ai-signal-latest.json"), JSON.stringify({ items, query: query ?? "" }));
     if (openPreview) {
       vscode.commands.executeCommand("markdown.showPreview", vscode.Uri.file(file));
     }
   } catch {
     idleStatus();
+    output.appendLine("top: remote output was not valid JSON — digest not refreshed.");
     if (openPreview) vscode.window.showErrorMessage("AI Signal: couldn't parse remote output.");
   }
 }
@@ -177,14 +184,20 @@ async function collectNow() {
   if (busy) return;
   const { stdout, code } = await runRemote("collect", "AI Signal: collecting on the Jetson…");
   if (code !== 0) {
+    // A failed collect must never look like success — without this toast the badge
+    // just returns to idle and the next digest is silently stale.
     idleStatus();
+    vscode.window.showErrorMessage(`AI Signal: collect failed (exit ${code}). See the "AI Signal" output.`);
     return;
   }
   let msg = "AI Signal: collection complete.";
   try {
     const s = JSON.parse(stdout.trim().split("\n").pop() || "{}");
     if (s.items != null) msg = `AI Signal: corpus ${s.items} items (+${s.enriched ?? 0} new). Refreshing…`;
-  } catch {}
+  } catch {
+    // Exit 0 but unparseable stats: the run succeeded — say so, but leave a trace.
+    output.appendLine("collect: run succeeded but its stats line was not valid JSON (see output above).");
+  }
   vscode.window.showInformationMessage(msg);
   showTop(undefined, false); // refresh the badge after collecting
 }
@@ -196,6 +209,17 @@ function openLatest() {
   } else {
     showTop();
   }
+}
+
+/**
+ * Open the local web view in the default browser. The page is served by
+ * `scripts/serve.py` on the desktop (start it once: `.venv/Scripts/python.exe
+ * scripts/serve.py`). The extension only feeds it data; it does not start the
+ * server. If the server isn't running the browser will show a connection error.
+ */
+function openWebView() {
+  const port = cfg().get<number>("webPort") ?? 8765;
+  vscode.env.openExternal(vscode.Uri.parse(`http://127.0.0.1:${port}`));
 }
 
 function applyRefresh() {

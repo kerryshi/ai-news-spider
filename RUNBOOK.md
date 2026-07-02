@@ -51,8 +51,32 @@ In VS Code (on the desktop):
 | Top on a topic | `Ctrl+Alt+T` → type e.g. "agent frameworks" |
 | Collect right now (don't wait for cron) | Command palette → **AI Signal: Collect now** |
 | Re-open the last digest | Command palette → **AI Signal: Open last digest** |
+| Open the local web view | Command palette → **AI Signal: Open web view** (start the server first — see §2a) |
 
 The badge **auto-refreshes every 20 min** (matches the Jetson's collect cron). Digest timestamps are in **Eastern (EST/EDT)**.
+
+### 2a. Local web view (browser)
+
+A private, browser-based view of the latest digest, served on **localhost only**
+(`127.0.0.1` — not reachable from other machines). Start the server once on the
+desktop; it keeps running:
+
+```powershell
+# from the repo root, on the desktop
+.\.venv\Scripts\python.exe scripts\serve.py        # → http://127.0.0.1:8765
+#   --port 9000     bind a different port (also set aiSignal.webPort to match)
+#   --refresh 15    page auto-reload interval in seconds (0 = off)
+```
+
+`serve.py` also accepts `--host`, but **leave it at the `127.0.0.1` default** —
+binding `0.0.0.0` would expose your digest to every machine on the LAN.
+
+Then run **AI Signal: Open web view** (or browse to `http://127.0.0.1:8765`).
+The page **auto-reloads itself** (every 30 s by default), so each time you hit
+**Top now / Collect now** — or the 20-min timer fires — the extension rewrites
+`%TEMP%\ai-signal-latest.json` and the page picks it up on its next reload. No
+manual refresh, no Jetson involvement (HTML is rendered on the desktop from the
+ranked JSON). If the page shows "no digest yet," run **Top now** once.
 
 ---
 
