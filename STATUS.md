@@ -24,17 +24,20 @@ the one minor — an ambiguous unjudged-signature edge — fixed with a regressi
   judged-zeros / near-dups / Ollama-down heuristic items never trip it).
 - **First push to GitHub**: full history → `kerryshi/ai-news-spider` (repo existed empty).
 
-## ⚠ PENDING — deploy the digest changes to the Jetson (needs your hand)
-The digest renders ON the Jetson, so `engine/digest.py` + `engine/pipeline.py` changes are
-invisible until scp'd. Run (env vars first — post-scrub defaults are placeholders;
-use your Jetson login and the desktop's Ollama LAN address):
-```powershell
-$env:JETSON_HOST='<user>@192.168.55.1'
-$env:OLLAMA_LAN_HOST='http://<desktop-lan-ip>:11434'
-./scripts/deploy.ps1 -SkipTests -SkipExtension -NoCommit
-```
-Then verify: status-bar "Top now" → digest shows "Why it's early —" lines.
-(`-SkipExtension` matters: the script's `npm version patch` would mis-bump 0.1.5 → 0.1.6.)
+## ✅ DEPLOYED 2026-07-02 — but ⚠ the Jetson is OFFLINE (ICS outage, pre-existing)
+The engine (digest transparency + judge-failure counting) was deployed to the Jetson on
+2026-07-02 with explicit approval; the deploy smoke returned valid JSON. It also uncovered
+an incident: **the collect cron had been failing silently for ~74.5h** — the desktop's ICS
+(Wi-Fi → Ethernet) dropped, the Jetson's eth0 lost its 192.168.137.x lease, and every
+source fetch died with "Name or service not known". The ranked window (72h) emptied out,
+which is why digests "looked quiet". Exactly the failure mode the new digest warning +
+`judge_failures` logging were built to surface — and it bumps the deferred **extension
+health-check command** ("warn if last collect > 25 min ago") from nice-to-have to next-up.
+
+**Recovery**: run `scripts/jetson-ics.ps1` **elevated** (replaces the temp-cleaned
+`%TEMP%\jetics.ps1`; re-enables ICS Wi-Fi→Ethernet + reasserts reboot persistence). Once
+eth0 re-leases, the `*/20` cron self-heals the corpus; the deployed digest then renders
+"Why it's early —" lines on judged items.
 
 ## This session (autonomous portfolio prep — 2026-06-28) — DONE
 The plan = freeze engine features, make the repo publish-ready and demoable. All landed
