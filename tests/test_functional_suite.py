@@ -528,5 +528,159 @@ class TestPhase1Optimizations(unittest.TestCase):
         other.close()
 
 
+# ──────── ranking transparency: reason line + unjudged-item warning ────────
+class TestDigestTransparency(unittest.TestCase):
+    """The judge's `reason` is the only "why is this ranked here" the digest has, and
+    it used to disappear for exactly the top items (any item with an llm_summary).
+    And a failed judge call (0/0 scores, empty reason, never retried) used to be
+    indistinguishable from a genuinely low-ranked item."""
+
+    def _judged(self, **kw):
+        it = _item(**kw)
+        it.score = 1.0
+        return it
+
+    def test_reason_renders_alongside_summary(self):
+        it = self._judged(title="Both", url="http://x/b")
+        it.llm_summary = "A tiny new model. It matters."
+        it.reason = "no coverage outside one Discord"
+        it.relevance, it.earliness = 8, 9
+        md = render_markdown([it])
+        self.assertIn("**What it is —** A tiny new model.", md)
+        self.assertIn("**Why it's early —** no coverage outside one Discord", md)
+
+    def test_reason_still_renders_without_summary(self):
+        it = self._judged(title="OnlyReason", url="http://x/r")
+        it.reason = "preprint, zero stars yet"
+        it.relevance = 5
+        md = render_markdown([it])
+        self.assertIn("**Why it's early —** preprint, zero stars yet", md)
+
+    def test_duplicate_reason_not_repeated(self):
+        it = self._judged(title="Dup", url="http://x/d")
+        it.llm_summary = "Same text."
+        it.reason = "Same text."
+        it.relevance = 5
+        md = render_markdown([it])
+        # The card shows the summary once; an identical reason adds no second line.
+        self.assertIn("**What it is —** Same text.", md)
+        self.assertNotIn("Why it's early", md)
+
+    def test_unjudged_items_get_a_header_warning(self):
+        judged = self._judged(title="Judged", url="http://x/j")
+        judged.relevance, judged.earliness, judged.reason = 7, 6, "fresh preprint"
+        failed = self._judged(title="Failed", url="http://x/f")  # 0/0 + empty reason
+        md = render_markdown([judged, failed])
+        self.assertIn("1 item(s) have no LLM judgment", md)
+
+    def test_no_warning_for_judged_heuristic_or_duplicate_items(self):
+        judged_zero = self._judged(title="JudgedZero", url="http://x/z")
+        judged_zero.reason = "mainstream rehash"           # judged AS zero, has a reason
+        heuristic = self._judged(title="Heuristic", url="http://x/h")
+        heuristic.relevance, heuristic.earliness = 6.0, 8.0  # Ollama-down defaults
+        near_dup = self._judged(title="Dup", url="http://x/n")
+        near_dup.reason = "near-duplicate"
+        md = render_markdown([judged_zero, heuristic, near_dup])
+        self.assertNotIn("no LLM judgment", md)
+
+    def test_html_mirrors_reason_and_warning(self):
+        from engine.digest import render_html
+        it = self._judged(title="Both", url="http://x/b")
+        it.llm_summary = "A tiny new model."
+        it.reason = "no coverage yet"
+        failed = self._judged(title="Failed", url="http://x/f")
+        html = render_html([it, failed])
+        self.assertIn("Why it's early", html)
+        self.assertIn("no coverage yet", html)
+        self.assertIn("1 item(s) have no LLM judgment", html)
+
+
+# ──────── collect: judge failures are counted and reported ─────────────────
+class _FakeCfg:
+    """Minimal Config stand-in: every get() returns its default, all sources
+    disabled (no network), db_path pointed at a temp store."""
+
+    def __init__(self, db_path):
+        self.db_path = db_path
+
+    def get(self, *path, default=None):
+        return default
+
+    def source_enabled(self, _name):
+        return False
+
+    def source(self, _name):
+        return {}
+
+
+class _FailingJudgeOllama:
+    available = True
+
+    def embed(self, _text):
+        return None  # no embedding -> novelty path stays inert
+
+    def judge(self, _system, _user):
+        return None  # every judge call fails
+
+    def close(self):
+        pass
+
+
+class _EmptyReasonJudgeOllama(_FailingJudgeOllama):
+    def judge(self, _system, _user):
+        # A parseable verdict scoring 0/0 with no reason: judged, NOT a failure.
+        return {"relevance": 0, "earliness": 0, "reason": "", "tags": []}
+
+
+class TestCollectJudgeFailures(unittest.TestCase):
+    def test_collect_counts_and_logs_failed_judgments(self):
+        from unittest.mock import patch
+        from engine.pipeline import collect
+
+        with tempfile.TemporaryDirectory() as d:
+            db = Path(d) / "t.db"
+            seed = Store(db)
+            seed.upsert_item(_item(url="http://x/1"))
+            seed.upsert_item(_item(url="http://x/2"))
+            seed.commit()
+            seed.close()
+
+            logs: list[str] = []
+            with patch("engine.pipeline._ollama", return_value=_FailingJudgeOllama()):
+                stats = collect(_FakeCfg(db), progress=logs.append)
+
+            self.assertEqual(stats["judge_failures"], 2)
+            self.assertTrue(any("judge call(s) returned nothing" in m for m in logs))
+            check = Store(db)
+            for it in check.get_corpus(since_hours=48):
+                self.assertEqual((it.relevance, it.earliness, it.reason), (0.0, 0.0, ""))
+            check.close()
+
+    def test_judged_zero_with_empty_reason_is_not_a_failure(self):
+        """A parseable 0/0 verdict with an empty reason is a JUDGMENT: it must not count
+        as a judge failure, and it must not wear the failed-judge signature (the stored
+        reason gets a placeholder so digest._unjudged can't over-count it)."""
+        from unittest.mock import patch
+        from engine.pipeline import collect
+        from engine.digest import _unjudged
+
+        with tempfile.TemporaryDirectory() as d:
+            db = Path(d) / "t.db"
+            seed = Store(db)
+            seed.upsert_item(_item(url="http://x/1"))
+            seed.commit()
+            seed.close()
+
+            with patch("engine.pipeline._ollama", return_value=_EmptyReasonJudgeOllama()):
+                stats = collect(_FakeCfg(db), progress=None)
+
+            self.assertEqual(stats["judge_failures"], 0)
+            check = Store(db)
+            corpus = check.get_corpus(since_hours=48)
+            self.assertEqual(corpus[0].reason, "(no reason given)")
+            self.assertEqual(_unjudged(corpus), 0)
+            check.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

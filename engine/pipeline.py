@@ -124,6 +124,7 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
     prior_vecs = store.enriched_embeddings()
 
     enriched = 0
+    judge_failures = 0
     for row in pending:
         text = f"{row['title']}\n\n{row['summary'] or ''}".strip()
         vec = ollama.embed(text) if ollama.available else None
@@ -151,8 +152,15 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
             if verdict:
                 relevance = float(verdict.get("relevance", 0) or 0)
                 earliness = float(verdict.get("earliness", 0) or 0)
-                reason = str(verdict.get("reason", ""))[:120]
+                # A judged item always carries a non-empty reason: 0/0 + empty reason is
+                # the FAILED-judge signature (digest._unjudged) and must stay unambiguous.
+                reason = str(verdict.get("reason", ""))[:120] or "(no reason given)"
                 tags = [str(t) for t in (verdict.get("tags") or [])][:5]
+            else:
+                # The item is stored with 0/0 and never re-judged; count it so the
+                # cycle log (and the digest's unjudged warning) can say so instead
+                # of the item just silently sinking in the rankings.
+                judge_failures += 1
         else:
             relevance = 6.0
             earliness = 8.0 if row["source"] in ("arxiv", "huggingface") else 5.0
@@ -172,10 +180,19 @@ def collect(cfg: Config, progress: Progress | None = None) -> dict:
     store.close()
     ollama.close()
     timings["total_s"] = sum(timings.values())
+    if judge_failures:
+        log(f"⚠ {judge_failures} judge call(s) returned nothing — those items are stored "
+            "with relevance/earliness 0 and will not be retried")
     log(f"✓ enriched {enriched} new · pruned {pruned} · corpus {stats['items']} items "
         f"· {timings['total_s']:.1f}s (fetch {timings['fetch_s']:.1f} · "
         f"upsert {timings['upsert_s']:.1f} · enrich {timings['enrich_s']:.1f})")
-    return {"enriched": enriched, "pruned": pruned, "timings": timings, **stats}
+    return {
+        "enriched": enriched,
+        "pruned": pruned,
+        "judge_failures": judge_failures,
+        "timings": timings,
+        **stats,
+    }
 
 
 # =============================== RANK ======================================== #

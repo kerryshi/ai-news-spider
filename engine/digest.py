@@ -71,6 +71,17 @@ def _excerpt(text: str, max_chars: int = 320) -> str:
     return f"{window.rsplit(' ', 1)[0]}…"
 
 
+def _unjudged(items: list[Item]) -> int:
+    """Items whose LLM judgment is missing: 0/0 scores AND no reason. A failed judge
+    call leaves exactly this signature (pipeline stores zeros with an empty reason and
+    never retries). Genuinely-judged zeros carry a reason; near-duplicates carry
+    "near-duplicate"; the Ollama-down heuristic assigns non-zero scores — so none of
+    those are counted."""
+    return sum(
+        1 for it in items if not _clean(it.reason) and not it.relevance and not it.earliness
+    )
+
+
 def render_markdown(items: list[Item], subtitle: str = "") -> str:
     now = datetime.now(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M %Z")
     lines = [
@@ -85,6 +96,15 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
     if not items:
         lines.append("_No items matched. Try a wider `--since` window or run a collect._")
         return "\n".join(lines)
+
+    unjudged = _unjudged(items)
+    if unjudged:
+        lines.append(
+            f"> ⚠ {unjudged} item(s) have no LLM judgment (relevance/earliness scored 0) — "
+            "the judge call failed or timed out when they were collected, and they are not "
+            "retried. They rank lower than they may deserve."
+        )
+        lines.append("")
 
     # ── At a glance: scan every item in seconds, click to open ──────────────
     lines.append("## ⚡ At a glance")
@@ -108,11 +128,16 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
         lines.append(" · ".join(meta))
         lines.append("")
 
+        # Show BOTH the readable summary and the judge's reason: the reason is the
+        # only "why is this ranked here" the digest has, and it used to disappear
+        # for exactly the top items (they all have summaries).
         summary = _clean(it.llm_summary)
+        reason = _clean(it.reason)
         if summary:
             lines.append(f"**What it is —** {summary}")
-        elif it.reason:
-            lines.append(f"**Why it's early —** {_clean(it.reason)}")
+        if reason and reason != summary:
+            prefix = "\n" if summary else ""
+            lines.append(f"{prefix}**Why it's early —** {reason}")
         if it.tags:
             lines.append(f"\n`{'` `'.join(it.tags)}`")
         excerpt = _excerpt(it.summary)
@@ -178,6 +203,14 @@ def render_html(items: list[Item], subtitle: str = "") -> str:
         out.append("<p><em>No items matched.</em></p></body></html>")
         return "\n".join(out)
 
+    unjudged = _unjudged(items)
+    if unjudged:
+        out.append(
+            f'<blockquote>⚠ {unjudged} item(s) have no LLM judgment (relevance/earliness '
+            "scored 0) — the judge call failed or timed out when they were collected, and "
+            "they are not retried. They rank lower than they may deserve.</blockquote>"
+        )
+
     out.append('<h2>⚡ At a glance</h2><ol class="glance">')
     for it in items:
         emoji = _EMOJI.get(it.source, "•")
@@ -200,10 +233,11 @@ def render_html(items: list[Item], subtitle: str = "") -> str:
         meta.append(f"nov {it.novelty:.2f}")
         out.append(f'<div class="meta">{" · ".join(meta)}</div>')
         summary = _clean(it.llm_summary)
+        reason = _clean(it.reason)
         if summary:
             out.append(f"<p><strong>What it is —</strong> {_h(summary)}</p>")
-        elif it.reason:
-            out.append(f"<p><strong>Why it's early —</strong> {_h(_clean(it.reason))}</p>")
+        if reason and reason != summary:
+            out.append(f"<p><strong>Why it's early —</strong> {_h(reason)}</p>")
         if it.tags:
             out.append(f'<div class="tags">{_h(" ".join(it.tags))}</div>')
         excerpt = _excerpt(it.summary)
