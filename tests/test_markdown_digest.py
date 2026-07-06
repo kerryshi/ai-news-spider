@@ -55,3 +55,21 @@ def test_markdown_still_links_titles_with_brackets():
     md = render_markdown([it])
     assert "(http://example.com/p)" in md   # link destination intact
     assert "\\[MoE\\]" in md                 # brackets escaped, link not broken
+
+
+def test_markdown_drops_dangerous_url_schemes():
+    # A scraped/LLM-supplied javascript:/data: URL must not become a live link in the
+    # Markdown preview — it is neutralized to '#', mirroring the HTML path's _safe_href.
+    for bad in ("javascript:alert(1)", "data:text/html,<script>alert(1)</script>",
+                "  JavaScript:alert(1)"):
+        it = _item(title="click me", url=bad, score=0.5)
+        md = render_markdown([it])
+        assert "javascript:" not in md.lower()
+        assert "data:text/html" not in md.lower()
+        assert "](#)" in md                  # destination replaced with a safe anchor
+
+
+def test_markdown_keeps_https_urls():
+    it = _item(title="ok", url="https://example.com/paper", score=0.5)
+    md = render_markdown([it])
+    assert "(https://example.com/paper)" in md   # legitimate http(s) links untouched

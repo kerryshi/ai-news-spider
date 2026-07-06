@@ -58,8 +58,14 @@ def _md_body(text: str) -> str:
 
 def _md_url(url: str) -> str:
     """Percent-encode the few chars that break a `(...)` link destination so URLs
-    like `.../Foo_(bar)` resolve instead of truncating at the first `)`."""
-    return (url or "").replace(" ", "%20").replace("(", "%28").replace(")", "%29")
+    like `.../Foo_(bar)` resolve instead of truncating at the first `)`. Also
+    scheme-restrict to http(s): a scraped/LLM-supplied `javascript:`/`data:` URL would
+    otherwise become a live link in VS Code's Markdown preview (mirrors _safe_href for
+    the HTML path)."""
+    u = (url or "").strip()
+    if not u.lower().startswith(("http://", "https://")):
+        return "#"
+    return u.replace(" ", "%20").replace("(", "%28").replace(")", "%29")
 
 
 def _md_link(text: str, url: str) -> str:
