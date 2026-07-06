@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from ..models import Item
 from .base import get, domain_of
 
-API = "http://hn.algolia.com/api/v1/search_by_date"
+API = "https://hn.algolia.com/api/v1/search_by_date"
 
 
 def fetch(settings: dict) -> list[Item]:

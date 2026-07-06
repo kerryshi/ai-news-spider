@@ -33,10 +33,27 @@ def _clean(text: str) -> str:
 
 
 def _md_text(text: str) -> str:
-    """Escape characters that would prematurely close markdown link text. AI titles
-    routinely carry `[MoE]`, `[code]`, etc.; an unescaped `]` ends the link early and
-    leaks the URL as literal text."""
-    return (text or "").replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+    """Escape markdown link text. Two jobs: (1) `[`/`]` — AI titles routinely carry
+    `[MoE]`, `[code]`, etc.; an unescaped `]` ends the link early and leaks the URL as
+    literal text. (2) `&<>` — VS Code's Markdown preview renders inline HTML, so an
+    unescaped `<img src=...>` in a scraped title would fire an outbound request when
+    the digest is opened."""
+    return (
+        (text or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\\", "\\\\")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+    )
+
+
+def _md_body(text: str) -> str:
+    """Neutralize raw HTML in untrusted body text (summaries, reasons, excerpts,
+    author). Same reason as _md_text's `&<>` handling: the Markdown preview renders
+    inline HTML, so scraped/LLM text must not carry a live `<img>`/`<a>` tag."""
+    return (text or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _md_url(url: str) -> str:
@@ -112,7 +129,7 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
     for i, it in enumerate(items, 1):
         emoji = _EMOJI.get(it.source, "•")
         gist = _takeaway(it)
-        tail = f" — {gist}" if gist else ""
+        tail = f" — {_md_body(gist)}" if gist else ""
         lines.append(f"{i}. {emoji} {_md_link(it.title, it.url)} · `{it.score:.2f}`{tail}")
     lines.append("\n---\n")
 
@@ -134,18 +151,21 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
         summary = _clean(it.llm_summary)
         reason = _clean(it.reason)
         if summary:
-            lines.append(f"**What it is —** {summary}")
+            lines.append(f"**What it is —** {_md_body(summary)}")
         if reason and reason != summary:
             prefix = "\n" if summary else ""
-            lines.append(f"{prefix}**Why it's early —** {reason}")
+            lines.append(f"{prefix}**Why it's early —** {_md_body(reason)}")
         if it.tags:
-            lines.append(f"\n`{'` `'.join(it.tags)}`")
+            # Strip backticks so a tag can't break out of the inline-code span (its
+            # contents are otherwise rendered literally, HTML included).
+            safe_tags = [t.replace("`", "") for t in it.tags]
+            lines.append(f"\n`{'` `'.join(safe_tags)}`")
         excerpt = _excerpt(it.summary)
         if excerpt and excerpt != summary:
-            lines.append(f"\n> {excerpt}")
+            lines.append(f"\n> {_md_body(excerpt)}")
         byline = f"🔗 {_md_link(it.source, it.url)}"
         if it.author:
-            byline += f" · {it.author}"
+            byline += f" · {_md_body(it.author)}"
         lines.append(f"\n{byline}")
         lines.append("\n---\n")
     return "\n".join(lines)

@@ -1,6 +1,30 @@
 # STATUS — ai-news-spider
 
-_Last updated: 2026-07-01 · **v0.1.5 shipped (web view + digest transparency), pushed to GitHub; Jetson deploy of the digest changes PENDING (gated)** · 94 tests green on the desktop `.venv` (1 live arxiv subtest excluded — external)._
+_Last updated: 2026-07-02 · **security audit + hardening applied (UNCOMMITTED, full suite green, extension recompiled)** · prior: v0.1.5 shipped + Jetson deploy of the digest changes (Jetson currently offline — ICS outage)._
+
+## Security audit + hardening (2026-07-02) — UNCOMMITTED, tests green
+A cross-project security audit (multi-agent, adversarially verified — 8 confirmed of 39
+raw findings) ran over all three Sandbox-Testing projects. The confirmed ai-news-spider
+issues were fixed here, each with a failing-first regression test; full suite green and
+the extension was recompiled (`out/extension.js` regenerated):
+- **VS Code extension (2× medium — local code-exec):** the status-bar tooltip no longer
+  renders remote-scraped titles in a *trusted* MarkdownString (`isTrusted=false` + titles
+  `mdEscape`d) — kills the `command:`-URI injection; SSH remote-path config is now
+  shell-quoted (`shqRemotePath`), the ssh-related settings are `scope:"machine"`, and
+  `capabilities.untrustedWorkspaces.supported:false` — opening an untrusted folder can no
+  longer inject a remote command via `.vscode/settings.json`.
+- **Cleartext feeds:** arxiv + hackernews endpoints switched http→https.
+- **DoS:** `sources/base.get` streams with a 16 MiB body cap (also bounds gzip bombs).
+- **Digest injection:** scraped/LLM text is HTML-escaped in the *markdown* path
+  (`_md_body` + extended `_md_text`) — the preview renders inline HTML, so an `<img>`
+  beacon in a title/summary is now inert. (The HTML path was already escaped.)
+- **CI:** least-privilege `permissions: contents: read`; `npm install`→`npm ci --ignore-scripts`.
+
+Reviewed and **accepted as-is** (verified not exploitable, do not re-flag): `deploy.ps1`
+interpolates the operator's *own* env vars (not attacker-controlled); `serve.py` is a
+loopback-by-use local viewer with no file-serving traversal surface. New tests:
+`tests/test_base_http.py`, `tests/test_markdown_digest.py`, `+test_arxiv_and_hn_endpoints_use_https`.
+**Next: review + commit these changes** (local-first; not yet committed or deployed).
 
 ## Where it is
 A working AI early-signal scraper in daily personal use: a Jetson Nano collector

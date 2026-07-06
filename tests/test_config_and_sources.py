@@ -1,6 +1,7 @@
 """Config loading + the source helpers that bit us before (domain parsing)."""
 
 from engine.config import Config
+from engine.sources import arxiv, hackernews
 from engine.sources.base import domain_of
 
 
@@ -24,3 +25,10 @@ def test_domain_of_strips_www_and_path():
     assert domain_of("https://www.techcrunch.com/2026/01/01/x") == "techcrunch.com"
     assert domain_of("http://news.ycombinator.com/item?id=1") == "news.ycombinator.com"
     assert domain_of("not a url") == ""
+
+
+def test_arxiv_and_hn_endpoints_use_https():
+    # Cleartext HTTP let an on-path attacker rewrite these two feeds (both hosts
+    # serve valid TLS). Guard against a regression back to http://.
+    assert arxiv.API.startswith("https://")
+    assert hackernews.API.startswith("https://")

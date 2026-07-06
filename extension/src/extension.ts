@@ -68,9 +68,24 @@ function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
+function shqRemotePath(p: string): string {
+  // Single-quote a remote path so it can't inject shell metacharacters, while still
+  // letting the remote shell expand a leading ~ / ~user (which quoting would suppress).
+  // Anything that isn't a clean `~`/`~user` prefix followed by `/...` is quoted whole.
+  const m = /^(~[a-zA-Z0-9_-]*)(\/.*)?$/.exec(p);
+  if (m) return m[1] + (m[2] ? "/" + shq(m[2].slice(1)) : "");
+  return shq(p);
+}
+
+function mdEscape(s: string): string {
+  // Neutralize markdown link/HTML syntax so a remote-scraped title can't inject a
+  // `[x](command:...)` link or a raw HTML tag into the status-bar tooltip.
+  return s.replace(/[\\`<>[\]()]/g, "\\$&");
+}
+
 function remoteCommand(engineArgs: string): string {
-  const dir = cfg().get<string>("remoteDir") || "~/ai-signal";
-  const py = cfg().get<string>("remotePython") || "venv/bin/python";
+  const dir = shqRemotePath(cfg().get<string>("remoteDir") || "~/ai-signal");
+  const py = shqRemotePath(cfg().get<string>("remotePython") || "venv/bin/python");
   return `cd ${dir} && ${py} -m engine.cli ${engineArgs}`;
 }
 
@@ -117,8 +132,10 @@ function writeDigest(file: string, md: string) {
 
 async function showTop(query?: string, openPreview = true) {
   if (busy) return;
-  const n = cfg().get<number>("defaultTopN") ?? 20;
-  const since = cfg().get<number>("sinceHours") ?? 72;
+  // Coerce to positive integers before they reach the remote shell command, so a
+  // non-numeric workspace override can't smuggle anything into the argument string.
+  const n = Math.max(1, Math.trunc(Number(cfg().get<number>("defaultTopN") ?? 20)) || 20);
+  const since = Math.max(1, Math.trunc(Number(cfg().get<number>("sinceHours") ?? 72)) || 72);
   let args = `top --json --n ${n} --since ${since}h`;
   if (query) args += ` --query ${shq(query)}`;
 
@@ -161,14 +178,16 @@ function updateStatus(items: any[], query?: string) {
   const n = items.length;
   statusItem.text = n ? `$(radar) AI Signal $(arrow-up) ${n}` : "$(radar) AI Signal";
   const md = new vscode.MarkdownString(
-    `**AI Signal** — top ${n}${query ? ` · _${query}_` : ""}\n\n` +
+    `**AI Signal** — top ${n}${query ? ` · _${mdEscape(query)}_` : ""}\n\n` +
       items
         .slice(0, 8)
-        .map((it, i) => `${i + 1}. ${it.title?.slice(0, 70) ?? ""}  \`${(it.score ?? 0).toFixed(2)}\``)
+        .map((it, i) => `${i + 1}. ${mdEscape(it.title?.slice(0, 70) ?? "")}  \`${(it.score ?? 0).toFixed(2)}\``)
         .join("\n") +
       `\n\n_Click to open the full digest._`
   );
-  md.isTrusted = true;
+  // Deliberately NOT trusted: the tooltip contains remote-scraped titles, and an
+  // untrusted MarkdownString renders `command:` links inert (no code-execution sink).
+  md.isTrusted = false;
   statusItem.tooltip = md;
 }
 

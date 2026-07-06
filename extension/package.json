@@ -14,6 +14,12 @@
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Runs SSH commands against a configured host; do not act on settings from an untrusted folder."
+    }
+  },
   "contributes": {
     "commands": [
       {
@@ -45,21 +51,25 @@
         "aiSignal.sshHost": {
           "type": "string",
           "default": "192.168.55.1",
+          "scope": "machine",
           "description": "Host/IP of the Jetson running the collector (default = USB-network address)."
         },
         "aiSignal.sshUser": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "Linux username on the Jetson (required). Key-based SSH must be set up."
         },
         "aiSignal.remoteDir": {
           "type": "string",
           "default": "~/ai-signal",
+          "scope": "machine",
           "description": "Path to the engine project on the Jetson."
         },
         "aiSignal.remotePython": {
           "type": "string",
           "default": "venv/bin/python",
+          "scope": "machine",
           "description": "Python interpreter on the Jetson, relative to remoteDir (or absolute)."
         },
         "aiSignal.defaultTopN": {

@@ -5,6 +5,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: the default GITHUB_TOKEN is read-only unless a job opts up.
+permissions:
+  contents: read
+
 jobs:
   engine:
     name: Engine tests (pytest)
@@ -26,6 +30,9 @@ jobs:
         with:
           node-version: "20"
       - working-directory: extension
-        run: npm install
+        # `npm ci` installs from the committed lockfile; `--ignore-scripts` blocks a
+        # malicious/typosquatted dependency's lifecycle scripts from running on the
+        # runner (a tsc build needs no dependency install-scripts).
+        run: npm ci --ignore-scripts
       - working-directory: extension
         run: npm run compile

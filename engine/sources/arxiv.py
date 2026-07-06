@@ -9,7 +9,7 @@ import feedparser
 from ..models import Item
 from .base import get
 
-API = "http://export.arxiv.org/api/query"
+API = "https://export.arxiv.org/api/query"
 
 
 def fetch(settings: dict) -> list[Item]:
