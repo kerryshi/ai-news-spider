@@ -1,8 +1,8 @@
 # STATUS — ai-news-spider
 
-_Last updated: 2026-07-02 · **security audit + hardening applied (UNCOMMITTED, full suite green, extension recompiled)** · prior: v0.1.5 shipped + Jetson deploy of the digest changes (Jetson currently offline — ICS outage)._
+_Last updated: 2026-07-07 · **both hardening waves COMMITTED + PUSHED** (`c4d06c5` audit fixes 2026-07-05; `a164b2f` redirect-SSRF guard 2026-07-06, reviewed clean, 109 tests green) · **Jetson still runs pre-hardening code — deploy blocked ONLY on `JETSON_HOST`** · caveat: the 2026-07-07 attribution history-rewrite changed all commit hashes; hashes in older sections below are pre-rewrite._
 
-## Security audit + hardening (2026-07-02) — UNCOMMITTED, tests green
+## Security audit + hardening (2026-07-02) — COMMITTED `c4d06c5`, PUSHED 2026-07-05
 A cross-project security audit (multi-agent, adversarially verified — 8 confirmed of 39
 raw findings) ran over all three Sandbox-Testing projects. The confirmed ai-news-spider
 issues were fixed here, each with a failing-first regression test; full suite green and
@@ -24,7 +24,9 @@ Reviewed and **accepted as-is** (verified not exploitable, do not re-flag): `dep
 interpolates the operator's *own* env vars (not attacker-controlled); `serve.py` is a
 loopback-by-use local viewer with no file-serving traversal surface. New tests:
 `tests/test_base_http.py`, `tests/test_markdown_digest.py`, `+test_arxiv_and_hn_endpoints_use_https`.
-**Next: review + commit these changes** (local-first; not yet committed or deployed).
+Committed as `c4d06c5` and pushed 2026-07-05. A second wave — redirect-SSRF guard +
+`_md_url` scheme restriction, independently reviewed clean — followed as `a164b2f`
+(pushed 2026-07-06). **Next: deploy both waves to the Jetson — blocked ONLY on `JETSON_HOST`.**
 
 ## Where it is
 A working AI early-signal scraper in daily personal use: a Jetson Nano collector
