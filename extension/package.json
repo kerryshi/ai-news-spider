@@ -2,7 +2,7 @@
   "name": "ai-signal-scraper",
   "displayName": "AI Signal Scraper",
   "description": "Surface emerging, not-yet-mainstream AI tech news from arXiv, HN, Reddit, GitHub & Hugging Face — ranked locally with Ollama.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "kerryshi",
   "engines": {
     "vscode": "^1.85.0"
