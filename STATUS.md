@@ -1,6 +1,6 @@
 # STATUS — ai-news-spider
 
-_Last updated: 2026-07-16 late · **DEPLOYED TO THE JETSON** (run 2026-07-16_2239): both hardening waves + the collect-staleness check are live; extension v0.1.6 installed (reload VS Code) · `JETSON_HOST` RESOLVED = `kershy@192.168.55.1` (was in VS Code settings; key auth works from this desktop) · outage recovered: ICS had silently dropped ~07-13, corpus pruned to 0; restored via jetson-ics.ps1 + SharedAccess restart + a LONG (15s) Ethernet carrier drop (short bounces don't retrigger NM's DHCP) · corpus refilled 0→413 items, health verdict live: fresh/11min · known flake: arxiv live-source test returns empty-200 on burst runs — make it rate-limit aware._
+_Last updated: 2026-07-16 late · **DEPLOYED TO THE JETSON** (run 2026-07-16_2239): both hardening waves + the collect-staleness check are live; extension v0.1.6 installed (reload VS Code) · `JETSON_HOST` RESOLVED = `kershy@192.168.55.1` (was in VS Code settings; key auth works from this desktop) · outage recovered: ICS had silently dropped ~07-13, corpus pruned to 0; restored via jetson-ics.ps1 + SharedAccess restart + a LONG (15s) Ethernet carrier drop (short bounces don't retrigger NM's DHCP) · corpus refilled 0→413 items, health verdict live: fresh/11min · PUSHED to GitHub (ae334c7) · known flake: arxiv live-source test returns empty-200 on burst runs — make it rate-limit aware._
 
 ## This session (2026-07-16) — collect-staleness health check (working tree)
 The deferred "warn if last collect > 25 min ago" check, promoted to next-up by the
