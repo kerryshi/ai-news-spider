@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import Config
-from .digest import render_html, render_markdown, write
+from .digest import collect_health, render_html, render_markdown, write
 from .pipeline import collect as run_collect, rank as run_rank, attach_summaries
 from .store import Store
 
@@ -41,18 +41,30 @@ def _progress(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _collect_health(cfg: Config) -> dict:
+    """Read the corpus's last-collect stamp and turn it into a staleness verdict."""
+    store = Store(cfg.db_path)
+    try:
+        return collect_health(store.health()["last_collect"])
+    finally:
+        store.close()
+
+
 def _emit_top(cfg: Config, query, since_hours, n, as_json: bool, html_path: Path | None = None) -> None:
     items = run_rank(cfg, query=query, since_hours=since_hours, n=n)
     items = attach_summaries(cfg, items, _progress)  # lazy, cached readable summaries
+    health = _collect_health(cfg)
     bits = []
     if query:
         bits.append(f"topic: {query}")
     if since_hours:
         bits.append(f"last {since_hours:g}h")
     subtitle = " · ".join(bits)
-    md = render_markdown(items, subtitle)
-    md_path, _ = write(items, cfg.digest_dir)
+    md = render_markdown(items, subtitle, health=health)
+    md_path, _ = write(items, cfg.digest_dir, health=health)
     _progress(f"✓ ranked {len(items)} items → {md_path}")
+    if health["stale"]:
+        _progress(f"⚠ collection looks stale ({health['reason']}) — see the digest banner.")
 
     if html_path is not None:
         html_path.parent.mkdir(parents=True, exist_ok=True)
@@ -61,7 +73,7 @@ def _emit_top(cfg: Config, query, since_hours, n, as_json: bool, html_path: Path
 
     if as_json:
         print(json.dumps(
-            {"digest_md": str(md_path), "digest_markdown": md,
+            {"digest_md": str(md_path), "digest_markdown": md, "health": health,
              "items": [it.to_dict() for it in items]},
             indent=2, default=str,
         ))
@@ -112,10 +124,14 @@ def main(argv: list[str] | None = None) -> int:
             mins = (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60
             return f"{mins:.0f} min ago" if mins < 120 else f"{mins/60:.1f} h ago"
 
+        # Same verdict the digest banner and the extension badge render — one
+        # threshold, so the surfaces can never disagree about what "stale" means.
+        health = collect_health(h["last_collect"])
+        mark = " ⚠ STALE" if health["stale"] else ""
         size_mb = os.path.getsize(cfg.db_path) / 1e6 if os.path.exists(cfg.db_path) else 0.0
         print(f"corpus:       {h['items']} items ({h['enriched']} enriched), {h['snapshots']} snapshots")
         print(f"db size:      {size_mb:.1f} MB")
-        print(f"last collect: {_ago(h['last_collect'])}")
+        print(f"last collect: {_ago(h['last_collect'])}{mark}")
         print(f"newest item:  {_ago(h['newest_item'])}")
         print("by source:    " + ", ".join(f"{k} {v}" for k, v in sorted(h["by_source"].items())))
         return 0

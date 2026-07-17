@@ -1,6 +1,37 @@
 # STATUS — ai-news-spider
 
-_Last updated: 2026-07-07 · **both hardening waves COMMITTED + PUSHED** (`c4d06c5` audit fixes 2026-07-05; `a164b2f` redirect-SSRF guard 2026-07-06, reviewed clean, 109 tests green) · **Jetson still runs pre-hardening code — deploy blocked ONLY on `JETSON_HOST`** · caveat: the 2026-07-07 attribution history-rewrite changed all commit hashes; hashes in older sections below are pre-rewrite._
+_Last updated: 2026-07-16 · **collect-staleness health check landed** (working tree, uncommitted) · both hardening waves COMMITTED + PUSHED (`c4d06c5` audit fixes 2026-07-05; `a164b2f` redirect-SSRF guard 2026-07-06, reviewed clean) · **Jetson still runs pre-hardening code — deploy blocked ONLY on `JETSON_HOST`** · caveat: the 2026-07-07 attribution history-rewrite changed all commit hashes; hashes in older sections below are pre-rewrite._
+
+## This session (2026-07-16) — collect-staleness health check (working tree)
+The deferred "warn if last collect > 25 min ago" check, promoted to next-up by the
+2026-07-05 ICS outage. The verdict lives in the **engine** (`digest.collect_health`,
+`STALE_AFTER_MINUTES = 25` — one `*/20` cron cycle + slack) reading the corpus's existing
+`Store.health()['last_collect']`; `top --json` now ships it as a `health` field, and the
+markdown digest prepends a 🚨 banner. Two surfaces render that one verdict — the digest
+banner and a warning-state status-bar badge (`statusBarItem.warningBackground`); `status`
+reuses it for a `⚠ STALE` marker, so no surface can drift on what "stale" means.
+- **The banner renders on the *empty* digest too** — an emptied ranking window IS the
+  outage symptom, so a banner after the "no items matched" early return would have
+  missed the exact failure it exists to catch. Pinned by a test.
+- **Unknown = stale.** Unreachable Jetson, unparseable output, or an engine too old to
+  send `health` all warn on **both** surfaces: the badge *and* the digest. The extension
+  prepends the banner itself only where the engine has no verdict to give (idempotent via
+  a shared `STALE_MARKER`, so failed refreshes can't stack banners). A badge-only warning
+  was a review finding — the digest is the surface that actually gets read, and a normal-
+  looking digest under a warning badge is the 2026-07-05 split exactly.
+  ⚠ **This means the badge warns now, before the deploy** — truthful today (SSH is down,
+  collection isn't running), but it is visible-now, not dormant.
+- **A failed collect/fetch never clears the warning.** `collectNow`'s error path used to
+  call `idleStatus()`, which erased an established stale badge — a failed collect is
+  evidence *for* staleness, not a reason to go quiet. (Review finding.) The one path that
+  deliberately does *not* warn: `collectNow` exit 0 with an unreadable stats line — the
+  collect itself succeeded, so warning there would be a false alarm.
+- 19 tests in `tests/test_collect_health.py`, including a node-driven behavioral check of
+  the compiled banner logic (CI's engine job now compiles the extension first). Extension
+  rebuilt locally via `npm run compile` (`extension/out/` is gitignored — reload VS Code
+  to pick it up).
+- Not touched: the Jetson deploy path (`JETSON_HOST`), `render_html`/`serve.py` (the
+  markdown + badge were the named surfaces — HTML banner is a follow-up).
 
 ## Security audit + hardening (2026-07-02) — COMMITTED `c4d06c5`, PUSHED 2026-07-05
 A cross-project security audit (multi-agent, adversarially verified — 8 confirmed of 39
@@ -57,8 +88,10 @@ an incident: **the collect cron had been failing silently for ~74.5h** — the d
 (Wi-Fi → Ethernet) dropped, the Jetson's eth0 lost its 192.168.137.x lease, and every
 source fetch died with "Name or service not known". The ranked window (72h) emptied out,
 which is why digests "looked quiet". Exactly the failure mode the new digest warning +
-`judge_failures` logging were built to surface — and it bumps the deferred **extension
-health-check command** ("warn if last collect > 25 min ago") from nice-to-have to next-up.
+`judge_failures` logging were built to surface — and it bumped the deferred **collect
+staleness check** ("warn if last collect > 25 min ago") from nice-to-have to next-up.
+**Built 2026-07-16** — see the top section. (It landed as a passive warning on every
+refresh, not the standalone command this line originally imagined.)
 
 **Recovery**: run `scripts/jetson-ics.ps1` **elevated** (replaces the temp-cleaned
 `%TEMP%\jetics.ps1`; re-enables ICS Wi-Fi→Ethernet + reasserts reboot persistence). Once

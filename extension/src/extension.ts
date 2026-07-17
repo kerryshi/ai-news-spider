@@ -49,7 +49,101 @@ function cfg() {
 
 function idleStatus() {
   statusItem.text = "$(radar) AI Signal";
+  statusItem.backgroundColor = undefined; // clear any stale warning; not an alarm yet
   statusItem.tooltip = "Click to refresh & open the latest AI signal digest";
+}
+
+/**
+ * The engine's collect-staleness verdict (`health` in `top --json`). The comparison
+ * lives in the engine so it is pytest-covered and every surface renders one verdict;
+ * the extension only paints it.
+ */
+type Health = { stale?: boolean; reason?: string; age_minutes?: number | null };
+
+/**
+ * Unknown health counts as stale. A verdict we can't read (unreachable Jetson,
+ * unparseable output, or an engine too old to send `health`) is exactly the state the
+ * 2026-07-05 outage sat in for 74.5h — a quiet badge there is the bug, not the fix.
+ */
+function isStale(health: Health | undefined): boolean {
+  return !health || health.stale !== false;
+}
+
+function staleLabel(health: Health | undefined): string {
+  if (health?.reason === "stale" && typeof health.age_minutes === "number") {
+    const m = health.age_minutes;
+    return m < 120 ? `last collect ${m.toFixed(0)} min ago` : `last collect ${(m / 60).toFixed(1)} h ago`;
+  }
+  return "last collect unknown — collector unreachable?";
+}
+
+/** Paint the badge as a warning. Pair every call with a digest banner: the badge alone
+ * is half the warning, and the digest is what actually gets read. */
+function staleStatus(health: Health | undefined, suffix = "") {
+  statusItem.text = `$(warning) AI Signal — stale`;
+  statusItem.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
+  const md = new vscode.MarkdownString(
+    `**AI Signal — collection may have stopped**\n\n${mdEscape(staleLabel(health))}${suffix}`
+  );
+  md.isTrusted = false;
+  statusItem.tooltip = md;
+}
+
+// Must match engine/digest.py's _stale_banner headline verbatim — it doubles as the
+// "already bannered" marker, so drift here would double-banner the digest. Pinned from
+// the engine side by test_collect_health.py::test_extension_banner_marker_matches_engine.
+const STALE_MARKER = "Collection may have stopped";
+// Detection must match the banner's exact blockquote structure, not the bare phrase: a
+// scraped title/summary containing the words would otherwise suppress a real warning
+// (reviewed defect, run 2026-07-15_1936 round 2). Both banner emitters (engine + this
+// file) start the line with this prefix.
+const STALE_BANNER_PREFIX = `> 🚨 **${STALE_MARKER}**`;
+
+/** True only when a line IS the banner — content merely mentioning the phrase doesn't count. */
+function hasStaleBanner(md: string): boolean {
+  return md.split(/\r?\n/).some((line) => line.startsWith(STALE_BANNER_PREFIX));
+}
+
+/** Why the digest is untrustworthy, in the banner's voice. */
+function staleWhy(health: Health | undefined): string {
+  if (health?.reason === "stale" && typeof health.age_minutes === "number") {
+    const m = health.age_minutes;
+    const ago = m < 120 ? `${m.toFixed(0)} min` : `${(m / 60).toFixed(1)} h`;
+    return `last successful collect was ${ago} ago`;
+  }
+  return "the last successful collect is unknown — the collector did not answer";
+}
+
+/**
+ * Prepend the staleness banner to a digest the engine did not banner itself. The engine
+ * banners whenever it *has* a verdict; this covers the cases it cannot speak to — an
+ * unreachable collector, unreadable output, or an engine too old to send `health` at
+ * all. Idempotent via STALE_MARKER, so a run of failed refreshes can't stack banners.
+ */
+function withStaleBanner(md: string, health: Health | undefined): string {
+  if (hasStaleBanner(md)) return md; // the engine already said it
+  return (
+    `> 🚨 **${STALE_MARKER}** — ${staleWhy(health)} (threshold: 25 min). The items below ` +
+    `are a frozen snapshot, not a quiet news day. Check the collector before trusting ` +
+    `this digest.\n\n${md}`
+  );
+}
+
+/**
+ * Banner the *cached* digest on a failed fetch. Without this the badge warns while the
+ * open preview still reads as a normal digest — which is the 2026-07-05 split exactly:
+ * the digest looked like a quiet news day for 74.5h. Warn on the surface being read.
+ */
+function bannerCachedDigest(health: Health | undefined) {
+  const file = path.join(os.tmpdir(), "ai-signal-latest.md");
+  try {
+    if (!fs.existsSync(file)) return; // no cached digest = nothing misleading on screen
+    const md = fs.readFileSync(file, "utf-8");
+    const bannered = withStaleBanner(md, health);
+    if (bannered !== md) writeDigest(file, bannered);
+  } catch (err) {
+    output.appendLine(`could not banner the cached digest: ${err}`);
+  }
 }
 
 function sshTarget(): string | undefined {
@@ -141,7 +235,11 @@ async function showTop(query?: string, openPreview = true) {
 
   const { stdout, code } = await runRemote(args, "AI Signal: ranking…");
   if (code !== 0) {
-    idleStatus();
+    // An unreachable collector is unknown health, not idle: going quiet here is what
+    // let the ICS outage hide for 74.5h. Badge stays a warning until a fetch succeeds,
+    // and the cached digest gets the same warning — the badge alone is half of it.
+    staleStatus(undefined, "\n\nThe last fetch failed — the digest below may be frozen.");
+    bannerCachedDigest(undefined);
     if (openPreview)
       vscode.window.showErrorMessage(`AI Signal: failed (exit ${code}). See the "AI Signal" output.`);
     return;
@@ -149,14 +247,20 @@ async function showTop(query?: string, openPreview = true) {
   try {
     const result = JSON.parse(stdout);
     const items = result.items ?? [];
-    updateStatus(items, query);
+    updateStatus(items, query, result.health);
     // Always refresh the on-disk digest so an already-open preview live-updates,
     // even on silent (timer / post-collect) refreshes. Previously the file was only
     // rewritten when openPreview was true, so background refreshes left the preview
     // stale. Only steal focus / open the preview when explicitly asked.
     const file = path.join(os.tmpdir(), "ai-signal-latest.md");
     if (result.digest_markdown) {
-      writeDigest(file, result.digest_markdown);
+      // withStaleBanner is a no-op when the engine already bannered (it knows it's
+      // stale) or when health is fresh; it only fills the gap left by an engine too
+      // old to send a verdict — whose silence must not read as "fresh".
+      const md = isStale(result.health)
+        ? withStaleBanner(result.digest_markdown, result.health)
+        : result.digest_markdown;
+      writeDigest(file, md);
     }
     // Feed the local web view (scripts/serve.py): persist the full ranked result so
     // the server renders fresh HTML on its next auto-refresh. Written on every
@@ -167,16 +271,25 @@ async function showTop(query?: string, openPreview = true) {
       vscode.commands.executeCommand("markdown.showPreview", vscode.Uri.file(file));
     }
   } catch {
-    idleStatus();
+    // Unparseable output = no verdict = unknown health. Same reasoning as the exit-code
+    // path above: never let an unverified digest wear a healthy badge, and warn on the
+    // cached digest too since it is the surface that actually gets read.
+    staleStatus(undefined, "\n\nThe last fetch was unreadable — the digest below may be frozen.");
+    bannerCachedDigest(undefined);
     output.appendLine("top: remote output was not valid JSON — digest not refreshed.");
     if (openPreview) vscode.window.showErrorMessage("AI Signal: couldn't parse remote output.");
   }
 }
 
 /** Glanceable status bar: count + top headline in the tooltip. */
-function updateStatus(items: any[], query?: string) {
+function updateStatus(items: any[], query?: string, health?: Health) {
+  if (isStale(health)) {
+    staleStatus(health, `\n\nShowing ${items.length} item(s) from the last good collect.`);
+    return;
+  }
   const n = items.length;
   statusItem.text = n ? `$(radar) AI Signal $(arrow-up) ${n}` : "$(radar) AI Signal";
+  statusItem.backgroundColor = undefined; // collection is healthy — drop any warning
   const md = new vscode.MarkdownString(
     `**AI Signal** — top ${n}${query ? ` · _${mdEscape(query)}_` : ""}\n\n` +
       items
@@ -203,9 +316,11 @@ async function collectNow() {
   if (busy) return;
   const { stdout, code } = await runRemote("collect", "AI Signal: collecting on the Jetson…");
   if (code !== 0) {
-    // A failed collect must never look like success — without this toast the badge
-    // just returns to idle and the next digest is silently stale.
-    idleStatus();
+    // A failed collect must never look like success. idleStatus() would actively erase
+    // an established stale warning and leave the badge neutral until the next refresh —
+    // a failed collect is evidence *for* staleness, so warn instead of clearing.
+    staleStatus(undefined, "\n\nThe last collect failed — the digest below may be frozen.");
+    bannerCachedDigest(undefined);
     vscode.window.showErrorMessage(`AI Signal: collect failed (exit ${code}). See the "AI Signal" output.`);
     return;
   }
@@ -252,3 +367,7 @@ function applyRefresh() {
     output?.appendLine(`Auto-refresh badge every ${mins} min.`);
   }
 }
+
+// Behavioral test hooks — consumed by tests/test_collect_health.py through node with a
+// stubbed `vscode` module. Not part of the extension's runtime surface.
+export const __test = { STALE_MARKER, STALE_BANNER_PREFIX, hasStaleBanner, withStaleBanner };

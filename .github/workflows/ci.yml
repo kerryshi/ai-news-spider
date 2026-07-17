@@ -18,6 +18,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # The banner-collision regression in test_collect_health.py drives the COMPILED
+      # extension through node (out/extension.js is gitignored), so this job compiles
+      # it first. Same --ignore-scripts hygiene as the extension job.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - working-directory: extension
+        run: npm ci --ignore-scripts
+      - working-directory: extension
+        run: npm run compile
       - run: pip install -r requirements-dev.txt
       - run: python -m pytest
 

@@ -26,6 +26,64 @@ _EMOJI = {
     "lobsters": "🦞",
 }
 
+# The Jetson collects on a */20 cron, so one missed cycle + 5 min of slack = 25 min.
+# Older than this means collection has stopped and the digest is a frozen snapshot.
+# This exists because of the 2026-07-05 ICS outage: eth0 lost its lease, every source
+# fetch died with "Name or service not known", the 72h ranked window emptied out, and
+# the digest silently "looked quiet" for 74.5h. Silent staleness is the failure mode.
+STALE_AFTER_MINUTES = 25
+
+
+def collect_health(last_collect: str | None, now: datetime | None = None) -> dict:
+    """Verdict on whether collection is still running, from the corpus's last-collect
+    timestamp (`Store.health()['last_collect']`). The engine owns this comparison so it
+    is testable here and every surface (digest, status, extension badge) renders one
+    verdict instead of re-deriving its own.
+
+    Unknown health is reported as unhealthy: a missing/unparseable timestamp means we
+    cannot show collection is alive, and the whole point of this check is that silent
+    degradation must not read as calm. `now` is injectable so tests are deterministic.
+    """
+    now = now or datetime.now(timezone.utc)
+    stamp = None
+    if last_collect:
+        try:
+            stamp = datetime.fromisoformat(last_collect)
+        except (TypeError, ValueError):
+            stamp = None
+    if stamp is None:
+        return {"last_collect": last_collect, "age_minutes": None,
+                "stale": True, "reason": "unknown"}
+    # A naive stamp would raise on the subtraction below; the corpus writes tz-aware
+    # UTC, so treat a naive value as UTC rather than crashing the whole digest.
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    age = (now - stamp).total_seconds() / 60
+    stale = age > STALE_AFTER_MINUTES
+    return {"last_collect": last_collect, "age_minutes": age,
+            "stale": stale, "reason": "stale" if stale else "fresh"}
+
+
+def _fmt_age(mins: float) -> str:
+    return f"{mins:.0f} min" if mins < 120 else f"{mins / 60:.1f} h"
+
+
+def _stale_banner(health: dict | None) -> str | None:
+    """The staleness warning line, or None when collection is healthy."""
+    if not health or not health.get("stale"):
+        return None
+    age = health.get("age_minutes")
+    when = (
+        f"last successful collect was {_fmt_age(age)} ago"
+        if age is not None
+        else "the last successful collect is unknown"
+    )
+    return (
+        f"> 🚨 **Collection may have stopped** — {when} (threshold: "
+        f"{STALE_AFTER_MINUTES} min). The items below are a frozen snapshot, not a "
+        "quiet news day. Check the collector before trusting this digest."
+    )
+
 
 def _clean(text: str) -> str:
     """Collapse whitespace/newlines so summaries read as tidy prose."""
@@ -105,7 +163,7 @@ def _unjudged(items: list[Item]) -> int:
     )
 
 
-def render_markdown(items: list[Item], subtitle: str = "") -> str:
+def render_markdown(items: list[Item], subtitle: str = "", health: dict | None = None) -> str:
     now = datetime.now(_DISPLAY_TZ).strftime("%Y-%m-%d %H:%M %Z")
     lines = [
         f"# AI early-signal digest — {now}",
@@ -115,6 +173,13 @@ def render_markdown(items: list[Item], subtitle: str = "") -> str:
     if subtitle:
         lines.append(f"*{subtitle}*")
     lines.append("")
+
+    # Before the empty-items return, deliberately: an emptied ranking window IS the
+    # outage symptom (2026-07-05), so "no items" is exactly when this must be said.
+    banner = _stale_banner(health)
+    if banner:
+        lines.append(banner)
+        lines.append("")
 
     if not items:
         lines.append("_No items matched. Try a wider `--since` window or run a collect._")
@@ -278,11 +343,11 @@ def render_html(items: list[Item], subtitle: str = "") -> str:
     return "\n".join(out)
 
 
-def write(items: list[Item], digest_dir: Path) -> tuple[Path, Path]:
+def write(items: list[Item], digest_dir: Path, health: dict | None = None) -> tuple[Path, Path]:
     stamp = datetime.now(_DISPLAY_TZ).strftime("%Y%m%d-%H%M%S")
     md_path = digest_dir / f"digest-{stamp}.md"
     json_path = digest_dir / f"digest-{stamp}.json"
-    md = render_markdown(items)
+    md = render_markdown(items, health=health)
     md_path.write_text(md, encoding="utf-8")
     json_path.write_text(
         json.dumps([it.to_dict() for it in items], indent=2, default=str),
