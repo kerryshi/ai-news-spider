@@ -3,7 +3,7 @@ feeds surface technical posts early. Free JSON, no key."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from ..models import Item
 from .base import get, domain_of

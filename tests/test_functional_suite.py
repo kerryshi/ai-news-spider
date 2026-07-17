@@ -9,7 +9,6 @@ dependency is down, but report what they saw.
 """
 from __future__ import annotations
 
-import math
 import tempfile
 import unittest
 from datetime import datetime, timezone, timedelta

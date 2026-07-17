@@ -86,7 +86,8 @@ def test_schema_migrates_in_place(tmp_path):
         "first_seen TEXT, last_seen TEXT, surfaced INTEGER, embedding TEXT);"
         "CREATE TABLE engagement (id TEXT, ts TEXT, value REAL, PRIMARY KEY(id,ts));"
     )
-    con.commit(); con.close()
+    con.commit()
+    con.close()
 
     s = Store(db)  # should ALTER in the missing columns without error
     s.upsert_item(_it("http://x/7"))

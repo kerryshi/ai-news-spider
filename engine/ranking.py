@@ -8,7 +8,7 @@ by a freshness decay so "best now" favours fresh, rising items.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime
 
 _BASE_KEYS = ("velocity", "novelty", "relevance", "earliness")
 

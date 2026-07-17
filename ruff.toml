@@ -1,0 +1,4 @@
+[lint.per-file-ignores]
+# test_functional_suite.py deliberately uses compact `x = _item(...); x.attr = v` fixture
+# setup; E702 there is style, not defect. Everything else lints clean.
+"tests/test_functional_suite.py" = ["E702"]
