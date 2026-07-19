@@ -1,6 +1,25 @@
 # STATUS — ai-news-spider
 
-_Last updated: 2026-07-16 late · **DEPLOYED TO THE JETSON** (run 2026-07-16_2239): both hardening waves + the collect-staleness check are live; extension v0.1.6 installed (reload VS Code) · `JETSON_HOST` RESOLVED = `kershy@192.168.55.1` (was in VS Code settings; key auth works from this desktop) · outage recovered: ICS had silently dropped ~07-13, corpus pruned to 0; restored via jetson-ics.ps1 + SharedAccess restart + a LONG (15s) Ethernet carrier drop (short bounces don't retrigger NM's DHCP) · corpus refilled 0→413 items, health verdict live: fresh/11min · PUSHED to GitHub (ae334c7) · known flake: arxiv live-source test returns empty-200 on burst runs — make it rate-limit aware._
+_Last updated: 2026-07-19 · **CI completed + deploy gate hardened (PRD WS2)**: ruff is now a
+blocking CI step in the `engine` job (tree linted clean FIRST — zero findings — before it
+became blocking; `ruff>=0.15` added to requirements-dev.txt); all workflow actions pinned to
+full commit SHAs (checkout v4.3.1, setup-python v5.6.0, setup-node v4.4.0) + pip caching;
+trigger set unchanged. `deploy.ps1`: `-SkipTests` REMOVED (PRD D4 — the pytest gate is
+unconditional; `[CmdletBinding()]` makes a stale `-SkipTests` invocation a named parameter
+error, exit 1, not a silent ignore) and `-DryRun` ADDED (stops after the pytest gate at the
+copy boundary — no scp/ssh/extension/commit under dry-run). Refuse-first evidence (all
+watched, 2026-07-19): planted F401 → `ruff check` exit 1, clean → exit 0; planted failing
+test → `deploy.ps1 -DryRun` exit 1 at "FAILED: tests failed - not deploying" with NO Jetson
+contact, clean → exit 0 stopping at the printed copy boundary; `-SkipTests` → exit 1
+NamedParameterNotFound; CI red proven on scratch branch `ci-red-proof` (engine job failed on
+the planted ruff violation; branch deleted after evidence), CI green on master. README now
+names the CI coverage gap: TestOllama self-skips on runners (enrichment is desktop-verified
+only); live sources are skip-with-notice on persistent-empty, never red. Known holes (named):
+CI runs ubuntu-latest only (desktop is the operating class — Windows behavior is
+local-verified); no local git hooks in this repo yet (deploy.ps1 + CI are the gates); CI
+detects, it does not refuse (no branch protection by decision D7). Previous top block below._
+
+_2026-07-16 late · **DEPLOYED TO THE JETSON** (run 2026-07-16_2239): both hardening waves + the collect-staleness check are live; extension v0.1.6 installed (reload VS Code) · `JETSON_HOST` RESOLVED = `kershy@192.168.55.1` (was in VS Code settings; key auth works from this desktop) · outage recovered: ICS had silently dropped ~07-13, corpus pruned to 0; restored via jetson-ics.ps1 + SharedAccess restart + a LONG (15s) Ethernet carrier drop (short bounces don't retrigger NM's DHCP) · corpus refilled 0→413 items, health verdict live: fresh/11min · PUSHED to GitHub (ae334c7) · known flake: arxiv live-source test returns empty-200 on burst runs — make it rate-limit aware._
 
 ## This session (2026-07-16) — collect-staleness health check (working tree)
 The deferred "warn if last collect > 25 min ago" check, promoted to next-up by the
