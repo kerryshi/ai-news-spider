@@ -6,13 +6,14 @@
 .EXAMPLE
   ./scripts/deploy.ps1 -Message "tune ranking weights"
   ./scripts/deploy.ps1 -SkipExtension      # engine-only change
-  ./scripts/deploy.ps1 -SkipTests -NoCommit
+  ./scripts/deploy.ps1 -DryRun             # run the test gate only; no Jetson contact
 #>
+[CmdletBinding()]
 param(
   [string]$Message = "deploy",
-  [switch]$SkipTests,
   [switch]$SkipExtension,
-  [switch]$NoCommit
+  [switch]$NoCommit,
+  [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
 
@@ -32,12 +33,17 @@ function Die($m)  { Write-Host "FAILED: $m" -ForegroundColor Red; exit 1 }
 
 Set-Location $root
 
-# 1. TEST (the gate) --------------------------------------------------------
-if (-not $SkipTests) {
-  Step "Running tests"
-  & $py -m pytest
-  if ($LASTEXITCODE -ne 0) { Die "tests failed - not deploying" }
-} else { Write-Host "(skipping tests)" -ForegroundColor DarkGray }
+# 1. TEST (the gate; unconditional - no skip switch by decision, PRD D4) -----
+Step "Running tests"
+& $py -m pytest
+if ($LASTEXITCODE -ne 0) { Die "tests failed - not deploying" }
+
+# DRY RUN boundary: stop after the test gate, before ANY Jetson contact.
+# No scp, no ssh, no extension build, no commit happens past this line.
+if ($DryRun) {
+  Write-Host "`nDRY RUN: test gate passed. Stopping at the copy boundary (step 2: ship engine to the Jetson). No scp/ssh attempted." -ForegroundColor Yellow
+  exit 0
+}
 
 # 2. SHIP ENGINE to the Jetson ---------------------------------------------
 Step "Deploying engine to the Jetson"

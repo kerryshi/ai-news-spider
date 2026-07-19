@@ -97,9 +97,21 @@ python -m pytest                 # engine unit tests (ranking, store, config)
 #   3. remote smoke test  (top --json must return valid JSON)
 #   4. rebuild + reinstall the VS Code extension (auto patch-bump)
 #   5. git commit
-# flags: -SkipExtension (engine-only), -SkipTests, -NoCommit
+# flags: -SkipExtension (engine-only), -DryRun (test gate only, stops before any
+#        Jetson contact), -NoCommit
+# The test gate is unconditional: there is deliberately no -SkipTests switch.
 ```
 
-**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the pytest suite
-and compiles the extension on every push / PR. Deployment stays local because the
-Jetson is only reachable from the desktop (USB link), not from cloud runners.
+**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `ruff check .`,
+the pytest suite, and compiles the extension on every push / PR. Deployment stays
+local because the Jetson is only reachable from the desktop (USB link), not from
+cloud runners.
+
+**What CI green does NOT cover:**
+
+- `TestOllama` self-skips on hosted runners (no Ollama there), so the enrichment
+  path (embeddings + LLM judge) is **desktop-verified only** — a green CI run says
+  nothing about it.
+- Live-source tests follow a skip-with-notice policy: a persistently empty source
+  is reported as a skipped-with-notice condition, never a red run. CI green
+  therefore does not prove every live source is currently returning items.
