@@ -1,14 +1,16 @@
 # AI early-signal scraper
 
+[![CI](https://github.com/kerryshi/ai-news-spider/actions/workflows/ci.yml/badge.svg)](https://github.com/kerryshi/ai-news-spider/actions/workflows/ci.yml)
+
 Local, Ollama-powered scraper that surfaces **emerging, not-yet-mainstream AI tech
 news** from arXiv, Hacker News, Reddit, GitHub, and Hugging Face — ranked by
 velocity, novelty, relevance, and earliness. No paid APIs, no cloud LLM cost.
 
-> **See it without running anything:** [`docs/sample-digest.html`](docs/sample-digest.html)
-> is a real, self-contained digest — open it in any browser (no engine, Jetson, or network
-> needed). _(Becomes a live GitHub Pages link once published.)_
+> **See it without running anything:** [live sample digest](https://kerryshi.github.io/ai-news-spider/)
+> — a real, self-contained digest ([`docs/sample-digest.html`](docs/sample-digest.html)); no
+> engine, Jetson, or network needed.
 
-**At a glance:** ~2,900-item corpus · 6 free sources · local-LLM enrichment (zero cloud cost) ·
+**At a glance:** 6 free sources · local-LLM enrichment (zero cloud cost) ·
 collects every 20 min on a Jetson Nano · embedding-based novelty dedup + velocity ranking ·
 a real VS Code extension · CI + one-command deploy.
 
@@ -41,9 +43,9 @@ flowchart LR
 ## Setup
 
 ```bash
-cd "spiders"
+cd ai-news-spider
 python -m venv .venv
-.venv\Scripts\activate            # PowerShell: .venv\Scripts\Activate.ps1
+source .venv/bin/activate         # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -73,7 +75,7 @@ The `extension/` shell gives you a status-bar button + hotkeys (`Ctrl+Alt+A` Top
 ## Architecture (hybrid)
 
 ```
-JETSON (jetson@192.168.55.1)            DESKTOP (RTX 5070)
+JETSON (<user>@<jetson-ip>)             DESKTOP (RTX 5070)
   cron */20 → engine.cli collect          Ollama (llama3.1:8b + nomic-embed-text)
     scrape → store → enrich ─────calls────▶  (enrichment GPU)
     state.db (corpus)                       VS Code extension ──ssh──▶ engine.cli top
@@ -115,3 +117,11 @@ cloud runners.
 - Live-source tests follow a skip-with-notice policy: a persistently empty source
   is reported as a skipped-with-notice condition, never a red run. CI green
   therefore does not prove every live source is currently returning items.
+
+**Limitations:**
+
+- The 8B local judge ranks reasonably but summarizes unreliably: in the sample digest it
+  describes "GLM 5.2 beats Claude in our benchmarks" as "a comparison of two open-source
+  machine learning libraries." Summaries are a convenience, not a source of truth.
+- Ranking quality has no labeled evaluation set yet; the velocity and novelty math is
+  unit-tested, but whether it surfaces the *right* items is judged by eye.

@@ -19,7 +19,7 @@ CI runs ubuntu-latest only (desktop is the operating class — Windows behavior 
 local-verified); no local git hooks in this repo yet (deploy.ps1 + CI are the gates); CI
 detects, it does not refuse (no branch protection by decision D7). Previous top block below._
 
-_2026-07-16 late · **DEPLOYED TO THE JETSON** (run 2026-07-16_2239): both hardening waves + the collect-staleness check are live; extension v0.1.6 installed (reload VS Code) · `JETSON_HOST` RESOLVED = `kershy@192.168.55.1` (was in VS Code settings; key auth works from this desktop) · outage recovered: ICS had silently dropped ~07-13, corpus pruned to 0; restored via jetson-ics.ps1 + SharedAccess restart + a LONG (15s) Ethernet carrier drop (short bounces don't retrigger NM's DHCP) · corpus refilled 0→413 items, health verdict live: fresh/11min · PUSHED to GitHub (ae334c7) · known flake: arxiv live-source test returns empty-200 on burst runs — make it rate-limit aware._
+_2026-07-16 late · **DEPLOYED TO THE JETSON** (run 2026-07-16_2239): both hardening waves + the collect-staleness check are live; extension v0.1.6 installed (reload VS Code) · `JETSON_HOST` RESOLVED = `<user>@<jetson-ip>` (was in VS Code settings; key auth works from this desktop) · outage recovered: ICS had silently dropped ~07-13, corpus pruned to 0; restored via jetson-ics.ps1 + SharedAccess restart + a LONG (15s) Ethernet carrier drop (short bounces don't retrigger NM's DHCP) · corpus refilled 0→413 items, health verdict live: fresh/11min · PUSHED to GitHub (ae334c7) · known flake: arxiv live-source test returns empty-200 on burst runs — make it rate-limit aware._
 
 ## This session (2026-07-16) — collect-staleness health check (working tree)
 The deferred "warn if last collect > 25 min ago" check, promoted to next-up by the
@@ -104,7 +104,7 @@ the one minor — an ambiguous unjudged-signature edge — fixed with a regressi
 The engine (digest transparency + judge-failure counting) was deployed to the Jetson on
 2026-07-02 with explicit approval; the deploy smoke returned valid JSON. It also uncovered
 an incident: **the collect cron had been failing silently for ~74.5h** — the desktop's ICS
-(Wi-Fi → Ethernet) dropped, the Jetson's eth0 lost its 192.168.137.x lease, and every
+(Wi-Fi → Ethernet) dropped, the Jetson's eth0 lost its ICS-assigned lease, and every
 source fetch died with "Name or service not known". The ranked window (72h) emptied out,
 which is why digests "looked quiet". Exactly the failure mode the new digest warning +
 `judge_failures` logging were built to surface — and it bumped the deferred **collect
