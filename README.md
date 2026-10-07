@@ -3,7 +3,7 @@
 [![CI](https://github.com/kerryshi/ai-news-spider/actions/workflows/ci.yml/badge.svg)](https://github.com/kerryshi/ai-news-spider/actions/workflows/ci.yml)
 
 Local, Ollama-powered scraper that surfaces **emerging, not-yet-mainstream AI tech
-news** from arXiv, Hacker News, Reddit, GitHub, and Hugging Face — ranked by
+news** from arXiv, Hacker News, Reddit, GitHub, Hugging Face, and Lobste.rs — ranked by
 velocity, novelty, relevance, and earliness. No paid APIs, no cloud LLM cost.
 
 > **See it without running anything:** [live sample digest](https://kerryshi.github.io/ai-news-spider/)
