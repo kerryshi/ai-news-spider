@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest>=8.0
-ruff>=0.15
+# Pinned below 0.16: 0.16 widened its default rule set and turned CI red on unchanged code
+# (2026-10-07). Adopting the new rules is a deliberate lint pass, not a silent upgrade.
+ruff>=0.15,<0.16
